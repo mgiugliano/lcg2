@@ -104,4 +104,7 @@ int record_trials(const Recorder *r);
  * not be written, or if an HDF5 object was left open. */
 int record_close(Recorder *r, Err *err);
 
+/* 1 if any HDF5 call failed during this process (see record.c). */
+int record_had_error(void);
+
 #endif /* LCG2_RECORD_H */

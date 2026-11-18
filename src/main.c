@@ -32,6 +32,8 @@
  * return -1 and a message instead.
  */
 #include <stdio.h>
+#include "platform.h"
+#include "record.h"
 #include "run.h"
 #include "session.h"
 
@@ -67,5 +69,6 @@ int main(int argc, char **argv)
     run_params_default(&rp, &session);
     rc = run_execute(&rp, &err);
     if (rc != 0 && err.msg[0]) fprintf(stderr, "lcg2: %s\n", err.msg);
+    if (record_had_error()) platform_exit_now(rc);   /* HDF5 may crash in its exit handlers after a failed write */
     return rc;
 }

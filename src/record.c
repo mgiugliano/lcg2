@@ -89,8 +89,19 @@ static herr_t walk(unsigned n, const H5E_error2_t *e, void *client)
 }
 
 /* Turn the failure of an HDF5 call into an Err, keeping what HDF5 says about it. */
+/* Set when any HDF5 call has failed.  HDF5 1.10 can crash in its own cleanup at exit after a failed write
+ * (seen on Ubuntu 22.04 with a full disk), so main() leaves such a process without running the exit
+ * handlers: see record_had_error(). */
+static int had_error;
+
+int record_had_error(void)
+{
+    return had_error;
+}
+
 static int hfail(Err *err, const char *path, const char *what, const char *object)
 {
+    had_error = 1;
     first_error[0] = 0;
     H5Ewalk2(H5E_DEFAULT, H5E_WALK_UPWARD, walk, NULL);
     H5Eclear2(H5E_DEFAULT);

@@ -354,3 +354,9 @@ void platform_delete_file(const char *path)
 {
     unlink(path);
 }
+
+void platform_exit_now(int status)
+{
+    fflush(NULL);
+    _exit(status);
+}

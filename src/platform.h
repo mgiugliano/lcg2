@@ -124,6 +124,9 @@ int platform_temp_file(char *path, size_t n);
 /* Delete a file (ignores a missing one). */
 void platform_delete_file(const char *path);
 
+/* Flush every stream and leave at once, without the exit handlers (a library's own cleanup may crash). */
+void platform_exit_now(int status);
+
 /* Ignore SIGPIPE, so that writing to a child that has died fails with EPIPE (which the caller
  * reports) instead of killing the program before it can put the outputs at rest. */
 void platform_ignore_sigpipe(void);

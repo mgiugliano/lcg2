@@ -145,7 +145,7 @@ def test_layout(tmp):
     check("the file name is YYYYMMDD_HHMMSS (local time)", re.match(r"^\d{8}_\d{6}$", stem) is not None, stem)
     A = {k: text(v) for k, v in f.attrs.items()}
     check("root attributes: format, versions, pin, run name, mode, device",
-          A.get("format") == "lcg2-hdf5/1" and A.get("lcg2_version") == "0.0.1" and
+          A.get("format") == "lcg2-hdf5/1" and A.get("lcg2_version") == "0.1.0" and
           A.get("stimgen_commit") == pin("commit") and A.get("stimgen_sources_sha256") == pin("sources_sha256") and
           A.get("run_name") == stem and A.get("mode") == "cc" and A.get("device") == "sim" and
           re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$", A.get("started_utc", "")) and
@@ -355,7 +355,7 @@ def test_folder(tmp):
 
     prov = json.load(open(os.path.join(fo, "provenance.json")))
     check("provenance: versions, pin, mode, device, profile, virtual time",
-          prov["lcg2_version"] == "0.0.1" and prov["stimgen"]["pinned_commit"] == pin("commit") and
+          prov["lcg2_version"] == "0.1.0" and prov["stimgen"]["pinned_commit"] == pin("commit") and
           prov["stimgen"]["pinned_sources_sha256"] == pin("sources_sha256") and prov["mode"] == "cc" and
           prov["device"] == "sim" and prov["virtual_time"] is True, prov["stimgen"])
     check("provenance: the digests are those of the files in the folder",
@@ -376,7 +376,7 @@ def test_folder(tmp):
     check("SHA256SUMS: the data file comes first", lines[0].endswith("  " + base) and lines[0].split()[0] == sha(readfile(h5)))
     log = open(os.path.join(fo, "log.txt")).read()
     check("log.txt: versions, command, trial line, end, the data digest and the digest record",
-          "LCG2 0.0.1, run cell3_" in log and "StimGen pinned at " + pin("commit") in log and "trial 1/1" in log and
+          "LCG2 0.1.0, run cell3_" in log and "StimGen pinned at " + pin("commit") in log and "trial 1/1" in log and
           "end  completed: 1 of 1" in log and "data  " + base in log and "sha256 " + sha(readfile(h5)) in log and
           "digests of 10 items written" in log, log)
     check("log.txt: the digests of the copied files", "sha256 " + sha(readfile(os.path.join(d, "noise.sg"))) in log)

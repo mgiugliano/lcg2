@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cli.h"
+#include "lcg2.h"
 #include "units.h"
 
 void cli_usage(FILE *f)
@@ -60,8 +61,12 @@ void cli_usage(FILE *f)
 "  -q, -v      quieter, more verbose\n"
 "  -h          this help\n"
 "\n"
-"exit status: 0 success, 1 error before the run, 2 aborted or failed during it\n",
+"exit status: 0 success, 1 error before the run, 2 aborted or failed during it\n"
+"\n"
+"A run writes STEM.h5 (the data) and the hidden folder .STEM/ (configuration, command,\n"
+"stimulus, log, checksums) in the current folder. Manual: docs/README.md.\n",
           f);
+    fprintf(f, "LCG2 %s, https://github.com/mgiugliano/lcg2\n", LCG2_VERSION);
 }
 
 /* Digits only, and small enough for 64 bits (StimGen's seed rule). */

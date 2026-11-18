@@ -19,3 +19,7 @@ options (give the value as a separate word, e.g. -r 20kHz):
   -h          this help
 
 exit status: 0 success, 1 error before the run, 2 aborted or failed during it
+
+A run writes STEM.h5 (the data) and the hidden folder .STEM/ (configuration, command,
+stimulus, log, checksums) in the current folder. Manual: docs/README.md.
+LCG2 0.1.0, https://github.com/mgiugliano/lcg2

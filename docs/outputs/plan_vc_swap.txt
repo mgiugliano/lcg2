@@ -1,10 +1,10 @@
-LCG2 0.0.1, dry run: the plan
+LCG2 0.1.0, dry run: the plan
 
   configuration  examples/lcg2.ini (profile: swap)
   device         sim  (built-in loopback simulator)
   mode           vc
   rate           20 kHz (stated by the stimulus)
-  seed           11101249436505656548 (drawn for this check; a run draws its own unless you give -s)
+  seed           5730892048150739588 (drawn for this check; a run draws its own unless you give -s)
   work           play the stimulus in examples/step_vc.sg
   stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
   channels       P1 (mV)  ->  [out P1] on ao0, peak 1 V of the limit 5 V

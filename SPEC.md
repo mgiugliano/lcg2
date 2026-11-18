@@ -519,7 +519,7 @@ How `device = neuron` works:
 | **S1** | **Hardware spike** (on the rig host, throwaway C), moved here at the owner's request so that the simulator comes first; the reviewer advised doing it earlier, because the DAQmx backend design depends on its answers: clock and trigger routing, one task or two, last-sample hold, rate coercion, start and loopback latency, clocked DO line, trigger line | each item in section 10 is answered in writing; the backend design is fixed from the answers |
 | M6 | DAQmx backend from the S1 design, built on the Mac against the stub header, built on the rig host against the real one | compiles on both |
 | M7 | Bring-up on the rig: loopback, long run, scope test of the outputs on Ctrl-C, kill and USB unplug | numbers recorded; outputs observed at rest on the scope in all three cases |
-| M8 | Documentation and v0.1: README, help text, example config and protocol | a new user runs the example on the simulator |
+| M8 **done** (v0.1.0) | Documentation and v0.1: README, help text, example config and protocol | a new user runs the example on the simulator |
 
 ## 13. Open
 

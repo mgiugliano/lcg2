@@ -21,23 +21,29 @@
 # SOFTWARE.
 
 # LCG2 -- Makefile.
-#   make              check the StimGen pin, build ./lcg2
+#   make              check the StimGen pin, build ./lcg2 and the test tools
 #   make test         run the tests (needs python3)
 #   make check-pin    only compare the StimGen sources with STIMGEN_PIN
-#   make clean        remove build/ and ./lcg2
+#   make clean        remove the build folder and ./lcg2
 #
 # Variables you may set on the command line:
 #   CC            the C compiler (default cc)
+#   BUILD         the folder for object files and test tools (default build). Put it
+#                 outside a Dropbox folder if the link fails with "Resource deadlock
+#                 avoided": Dropbox holds freshly written files. Example:
+#                     make BUILD=/tmp/lcg2-build
+#                 (tests/test_stim.py then needs LCG2_BUILD=/tmp/lcg2-build)
 #   STIMGEN_SRC   where the StimGen 2 library sources are (default ../StimGen/src)
 #
 # StimGen is NOT copied into this project.  Its library files are compiled from
-# STIMGEN_SRC into build/, with LCG2's own flags, and only after the sources
+# STIMGEN_SRC into $(BUILD)/, with LCG2's own flags, and only after the sources
 # have been compared with the fingerprint in STIMGEN_PIN.  Nothing is ever
 # written inside the StimGen folder (it has stale .o files of its own; they
 # are not used).  The library is not linked into lcg2 yet (that is milestone
 # M2), but it is compiled now so that the flags and the warnings are proved.
 
 CC     ?= cc
+BUILD  ?= build
 # The flags of StimGen's own Makefile, so that the rendered samples are the
 # same (-ffp-contract=off: no fused multiply-add, results do not depend on the
 # compiler's choice).
@@ -57,51 +63,51 @@ STIMGEN_SRC ?= ../StimGen/src
 SG_FILES = util help render rng parse prims eval protocol sgb sg_api
 
 SRC     = err units config cli json stim main
-OBJ     = $(SRC:%=build/%.o) build/ini.o
-SG_OBJ  = $(SG_FILES:%=build/stimgen/%.o)
+OBJ     = $(SRC:%=$(BUILD)/%.o) $(BUILD)/ini.o
+SG_OBJ  = $(SG_FILES:%=$(BUILD)/stimgen/%.o)
 
 all: check-pin lcg2 tools
 
 lcg2: $(OBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(SG_OBJ) $(LDLIBS)
 
-build/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h | build
+$(BUILD)/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -c -o $@ $<
 
-build/ini.o: vendor/inih/ini.c vendor/inih/ini.h | build
+$(BUILD)/ini.o: vendor/inih/ini.c vendor/inih/ini.h | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -c -o $@ $<
 
-# The StimGen library, compiled into build/stimgen/ (used from M2 on).
+# The StimGen library, compiled into $(BUILD)/stimgen/ (used from M2 on).
 stimgen-lib: check-pin $(SG_OBJ)
 
-build/stimgen/%.o: $(STIMGEN_SRC)/%.c $(STIMGEN_SRC)/sg.h | build/stimgen
+$(BUILD)/stimgen/%.o: $(STIMGEN_SRC)/%.c $(STIMGEN_SRC)/sg.h | $(BUILD)/stimgen
 	$(CC) $(CFLAGS) -I$(STIMGEN_SRC) -c -o $@ $<
 
-build build/stimgen:
+$(BUILD) $(BUILD)/stimgen:
 	mkdir -p $@
 
 # ---------------------------------------------------------------------------
 # Tools used by the tests (not part of lcg2):
-#   build/sg         StimGen's own command-line renderer, compiled from
+#   $(BUILD)/sg         StimGen's own command-line renderer, compiled from
 #                    STIMGEN_SRC with LCG2's flags, to compare with
-#   build/stimdump   dumps what LCG2's stimulus module holds, for comparison
-#   build/jsontool   round-trips JSON through json.c
+#   $(BUILD)/stimdump   dumps what LCG2's stimulus module holds, for comparison
+#   $(BUILD)/jsontool   round-trips JSON through json.c
 # ---------------------------------------------------------------------------
-tools: build/sg build/stimdump build/jsontool build/unit
+tools: $(BUILD)/sg $(BUILD)/stimdump $(BUILD)/jsontool $(BUILD)/unit
 
-build/sg: build/stimgen/main.o $(SG_OBJ)
-	$(CC) $(CFLAGS) -o $@ build/stimgen/main.o $(SG_OBJ) $(LDLIBS)
+$(BUILD)/sg: $(BUILD)/stimgen/main.o $(SG_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(BUILD)/stimgen/main.o $(SG_OBJ) $(LDLIBS)
 
-LIBOBJ = $(filter-out build/main.o,$(OBJ))
+LIBOBJ = $(filter-out $(BUILD)/main.o,$(OBJ))
 
-build/stimdump: tests/stimdump.c $(LIBOBJ) $(SG_OBJ)
+$(BUILD)/stimdump: tests/stimdump.c $(LIBOBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/stimdump.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
 
-build/unit: tests/unit.c $(LIBOBJ) $(SG_OBJ)
+$(BUILD)/unit: tests/unit.c $(LIBOBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/unit.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
 
-build/jsontool: tests/jsontool.c build/json.o build/err.o
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/jsontool.c build/json.o build/err.o $(LDLIBS)
+$(BUILD)/jsontool: tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o $(LDLIBS)
 
 # ---------------------------------------------------------------------------
 # The pin: the library sources must be the ones LCG2 was tested against.
@@ -124,12 +130,13 @@ check-pin:
 	echo "check-pin: StimGen sources match the pin"
 
 test: all
-	./build/unit
+	$(BUILD)/unit
 	python3 tests/run_tests.py ./lcg2
-	python3 tests/test_stim.py
+	LCG2_BUILD=$(BUILD) python3 tests/test_stim.py
 	python3 tests/test_docs.py ./lcg2
 
 clean:
-	rm -rf build lcg2
+	@test -n "$(BUILD)" && test "$(BUILD)" != "/" && test "$(BUILD)" != "."
+	rm -rf $(BUILD) lcg2
 
 .PHONY: all tools stimgen-lib check-pin test clean

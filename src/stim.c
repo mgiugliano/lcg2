@@ -101,31 +101,50 @@ int stim_rate_fraction(double hz, int64_t *p, int64_t *q)
  *   editor:3: bad thing        ->  step.sg:3: bad thing
  *   line 3: bad thing          ->  step.sg:3: bad thing
  *   --rate 10kHz differs ...   ->  -r 10kHz differs ...
+ *
+ * A trial of a protocol is rendered from its own expanded text, so a line number
+ * in an error counts lines of THAT text, not of the protocol file.  Then the
+ * message says so, rather than pointing at the wrong line of the file:
+ *
+ *   p.sg (trial 0003, line 5 of that trial's text): bad thing
+ *
+ * `trial` is NULL for everything else.
  */
-static int sg_fail(const char *where, Err *err)
+static int sg_fail(const char *file, const char *trial, Err *err)
 {
     const char *m = sg_api_error();
-    char out[320];
-    size_t k = 0;
+    char head[360], out[320], num[16];
     const char *p = m;
+    size_t k = 0, j = 0;
 
+    num[0] = 0;
     if (strncmp(p, "editor", 6) == 0 && (p[6] == ':' || p[6] == ' ')) {
         p += 6;
-        k = (size_t)snprintf(out, sizeof out, "%s", where);
+        if (*p == ':' && p[1] >= '0' && p[1] <= '9') {      /* "editor:3: ..." */
+            const char *d = p + 1;
+            while (*d >= '0' && *d <= '9' && j < sizeof num - 1) num[j++] = *d++;
+            num[j] = 0;
+            p = d;
+        }
     } else if (strncmp(p, "line ", 5) == 0) {
         const char *d = p + 5;
-        char num[16];
-        size_t j = 0;
         while (*d >= '0' && *d <= '9' && j < sizeof num - 1) num[j++] = *d++;
         num[j] = 0;
-        if (j && *d == ':') {
-            k = (size_t)snprintf(out, sizeof out, "%s:%s", where, num);
-            p = d;
-        } else {
-            k = (size_t)snprintf(out, sizeof out, "%s: ", where);
-        }
+        if (j && *d == ':') p = d; else num[0] = 0;
+    }
+
+    if (trial && num[0])
+        snprintf(head, sizeof head, "%s (trial %s, line %s of that trial's text)", file, trial, num);
+    else if (trial)
+        snprintf(head, sizeof head, "%s (trial %s)", file, trial);
+    else if (num[0])
+        snprintf(head, sizeof head, "%s:%s", file, num);
+    else
+        snprintf(head, sizeof head, "%s", file);
+    if (*p != ':') {                                 /* the separator is always there */
+        k = (size_t)snprintf(out, sizeof out, "%s: ", head);
     } else {
-        k = (size_t)snprintf(out, sizeof out, "%s: ", where);
+        k = (size_t)snprintf(out, sizeof out, "%s", head);
     }
     if (k >= sizeof out) k = sizeof out - 1;
     /* the rest, with "--rate" spelled as LCG2 spells it */
@@ -363,23 +382,22 @@ static int decode_sgb(const uint8_t *b, size_t size, Trial *t, Err *err)
  * messages. */
 static int render_with(const Stim *st, int i, const char *rate_arg, Trial *t, Err *err)
 {
-    const char *text, *seed, *info, *name, *unit;
-    char where[360];
+    const char *text, *seed, *info, *name, *unit, *trial;
     int rc;
 
     memset(t, 0, sizeof *t);
     if (st->is_protocol) {
         const TrialDesc *td = &st->td[i];
         text = td->text; seed = td->seed; info = td->info; name = td->name;
-        snprintf(where, sizeof where, "%s (trial %s)", st->source, td->name);
+        trial = td->name;
     } else {
         text = st->text; seed = st->seed_arg; info = ""; name = "stimulus";
-        snprintf(where, sizeof where, "%s", st->source);
+        trial = NULL;
     }
     unit = st->waveform ? st->unit : "";
 
     rc = sg_api_render_trial(text, rate_arg, seed, unit, info, st->is_protocol ? st->text : "");
-    if (rc != 0) return sg_fail(where, err);
+    if (rc != 0) return sg_fail(st->source, trial, err);
     take_warnings(t, sg_api_warnings());
     if (decode_sgb(sg_api_result(), sg_api_result_size(), t, err) < 0) {
         trial_free(t);
@@ -471,7 +489,7 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
     }
 
     /* What is it? */
-    if (sg_api_kind(st->text) != 0) { sg_fail(st->source, err); stim_free(st); return -1; }
+    if (sg_api_kind(st->text) != 0) { sg_fail(st->source, NULL, err); stim_free(st); return -1; }
     if (!copy_fit(kind, sizeof kind, sg_api_text())) kind[0] = 0;
     if (strcmp(kind, "index") == 0) {
         stim_free(st);
@@ -482,21 +500,30 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
         char *json;
         st->is_protocol = 1;
         if (sg_api_expand(st->text, opt->seed ? opt->seed : "") != 0) {
-            sg_fail(st->source, err); stim_free(st); return -1;
+            sg_fail(st->source, NULL, err); stim_free(st); return -1;
         }
         json = xdup(sg_api_text());                /* copy before the next call */
         if (!json) { stim_free(st); return err_set(err, "out of memory"); }
         st->protocol_json = json;
         if (read_trials(st, json, err) < 0) { stim_free(st); return -1; }
+        /* Where did the protocol seed come from?  -s, or the protocol itself
+         * (a "seed" line: every expansion gives the same seed), or a random draw
+         * (every expansion gives another).  Expand once more and compare. */
+        if (opt->seed) {
+            st->seed_source = SEED_GIVEN;
+        } else if (sg_api_expand(st->text, "") == 0) {
+            Json *again = json_parse(sg_api_text(), strlen(sg_api_text()), &(Err){ {0} });
+            if (again && strcmp(json_str_or(again, "protocol_seed", ""), st->protocol_seed) == 0)
+                st->seed_source = SEED_STATED;
+            json_free(again);
+        }
         /* All the trials must be of one kind: a plain waveform or a stimulus. */
         {
             int i, wf = -1;
             for (i = 0; i < st->n; i++) {
                 int w;
                 if (sg_api_kind(st->td[i].text) != 0) {
-                    char where[360];
-                    snprintf(where, sizeof where, "%s (trial %s)", source, st->td[i].name);
-                    sg_fail(where, err); stim_free(st); return -1;
+                    sg_fail(st->source, st->td[i].name, err); stim_free(st); return -1;
                 }
                 w = strcmp(sg_api_text(), "waveform") == 0;
                 if (wf >= 0 && w != wf) {
@@ -565,6 +592,22 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
         rc = render_with(st, 0, st->rate_arg, &t, &e1);
     }
     if (rc < 0) { *err = e1; stim_free(st); return -1; }
+
+    /* Where did the seed of a plain stimulus come from?  -s; or the stimulus
+     * itself (a "seed" line: every render gives the same seed); or a random
+     * draw (every render gives another).  Render once more and compare. */
+    if (!st->is_protocol) {
+        if (opt->seed) {
+            st->seed_source = SEED_GIVEN;
+        } else {
+            Trial again;
+            Err ignore;
+            if (render_with(st, 0, st->rate_arg, &again, &ignore) == 0) {
+                if (strcmp(again.seed, t.seed) == 0) st->seed_source = SEED_STATED;
+                trial_free(&again);
+            }
+        }
+    }
 
     /* A plain stimulus: fix its seed now, so that every later render is the
      * same.  (A protocol's trial seeds are already fixed in its trial list.) */

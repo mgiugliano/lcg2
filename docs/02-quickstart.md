@@ -47,14 +47,19 @@ a few test tools, among them `build/sg`, StimGen's own command-line renderer.
 > update `sources_sha256` (and `commit`) in `STIMGEN_PIN` using the command
 > written in that file.
 
+> **Building inside a Dropbox folder.** Dropbox can hold freshly written files, and the
+> link then fails with `Resource deadlock avoided`. Keep the build folder outside it:
+> `make BUILD=/tmp/lcg2-build` (and `LCG2_BUILD=/tmp/lcg2-build` for the tests
+> `tests/test_stim.py`; `make test BUILD=...` does it for you).
+
 ## Run the tests
 
 ```console
 $ make test
 ...
-unit tests: 35 checks, 0 failed
+unit tests: ... checks, 0 failed
 ... tests passed
-stimulus tests: 159 checks, 0 failed
+stimulus tests: ... checks, 0 failed
 documents: ... commands run, ... skipped, 0 failed
 ```
 
@@ -71,7 +76,7 @@ LCG2 0.0.1, dry run: the plan
   device         sim  (built-in loopback simulator)
   mode           cc
   rate           20 kHz (stated by the stimulus)
-  seed           4177202958314570411 (drawn now; recorded)
+  seed           4177202958314570411 (drawn for this check; a run draws its own unless you give -s)
   work           play the stimulus in examples/step.sg
   stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
   channels       P1 (pA)  ->  [out P1] on ao0, peak 0.5 V of the limit 5 V

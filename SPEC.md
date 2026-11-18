@@ -217,7 +217,25 @@ a key outside a section, a line over 999 characters: all errors, with
   idle analog outputs at the rest of the configuration; digital 0/1 with the stimulus's
   rest in the padding (0 if unnamed). Packing digital lines into a port word, and timing,
   belong to the backend and the engine (M3).
-- **Messages** name the user's own file (or `the -e text`) and say `-r`, not `--rate`.
+- **The error trap (SPEC 3.1), checked.** Audit of the pinned StimGen sources: the only
+  `exit()` in the library files is inside `die()`, which `longjmp`s to the trap when one
+  is set, and every `sg_api_*` function sets one; allocation failures go through `die()`;
+  the library writes to stdout only in `write_text` and `write_sgb`, which the API never
+  calls; warnings are muted under the API (`g_quiet`) and returned instead. So an error in
+  StimGen comes back as an error. `build/unit` proves it: stimuli that StimGen rejects in
+  seven different ways (unknown name, syntax error, missing file, duplicate channel, an
+  empty sweep, an empty text, garbage), alternating with good ones in one process, all
+  return an error and the library still works afterwards. Note: after an error the trap
+  pointer is left pointing at a finished stack frame until the next `sg_api_*` call sets
+  a new one; harmless as long as nothing calls `die()` outside the API, which LCG2 never does.
+- **Messages** name the user's own file (or `the -e text`) and say `-r`, not `--rate`. An error
+  inside one trial of a protocol counts lines of the *trial's expanded text*, not of the
+  protocol file, so the message says so: `p.sg (trial 0003, line 5 of that trial's text): ...`.
+- **Where the seed came from** is reported honestly: `from -s`; `stated by the stimulus` (a
+  `seed` line: two renders, or two expansions, give the same seed); or `drawn for this check;
+  a run draws its own unless you give -s`. A seed drawn during `-n` is not the one a run will draw.
+- **The build folder** is `BUILD` (default `build`); a build inside a Dropbox folder can fail
+  at link time with "Resource deadlock avoided", so `make BUILD=/tmp/...` keeps it outside.
 - **Plan** (`-n`) shows the rate and its source, the seed, the stimulus (kind, trials,
   samples), each channel's output and peak command against its limit, the idle outputs,
   and the check result.

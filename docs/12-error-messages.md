@@ -113,6 +113,7 @@ Idle values of skipped outputs are not checked.
 | Message (shortened) | What it means | What to do |
 |:--|:--|:--|
 | `FILE:LINE: ...` or `the -e text:LINE: ...` | StimGen found a mistake in your text, at that line | fix the stimulus; `build/sg help` explains the language |
+| `FILE (trial 0003, line 5 of that trial's text): ...` | a mistake inside one trial of a protocol; the line counts the trial's own expanded text, not the protocol file | find the construct in the protocol's `stimulus { ... }` block; `build/sg expand` writes each trial as a file so you can look at line 5 |
 | `... is a plain waveform: it names no channel, so say which pipette gets it with -T NAME` | the text is one signal with no channel name | add `-T NAME` |
 | `-T is only for a plain waveform; ... names its channels itself` | `-T` with a stimulus or a protocol of stimuli | drop `-T` |
 | `-T: 'NAME' is not an analog output in use` | wrong name, a skipped or a digital output | choose an analog `[out]` that is in use |
@@ -144,7 +145,8 @@ Idle values of skipped outputs are not checked.
 ## Not an error, but a stop
 
 ```text
-lcg2: playing and recording are not implemented yet in this build (milestones M0 and M1); use -n to check a configuration
+lcg2: playing and recording are not implemented yet in this build (milestones M0 to M2: the stimulus was read and checked); use -n to see the plan
 ```
 
-Exit status 1. Use `-n` until milestones M2 to M4 are built.
+Exit status 1. It appears only after every check has passed. Use `-n` to see the plan; playing
+and recording are milestones M3 and M4.

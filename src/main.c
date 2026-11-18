@@ -164,9 +164,10 @@ static int check_stimulus(const Options *o, const Config *c, Err *err)
             report.rate_p = t.rate_p;
             report.rate_q = t.rate_q;
         } else if (t.rate_p != report.rate_p || t.rate_q != report.rate_q) {
+            err_set(err, "%s: trial %s has another sampling rate than the first trial",
+                    stim.source, t.name);                 /* before the name is freed */
             trial_free(&t);
-            return err_set(err, "%s: trial %s has another sampling rate than the first trial",
-                           stim.source, t.name);
+            return -1;
         }
         if (stim_map(&stim, &t, o, c, map, err) < 0 ||
             stim_check(&t, map, c, peak, err) < 0) {
@@ -230,13 +231,15 @@ static void print_plan(const Options *o, const Table *t, const Config *c,
         printf("  rate           from the stimulus (none in -r or the "
                "configuration)\n");
     }
-    if (rep && rep->ntrials && stim.is_protocol)
-        printf("  seed           protocol seed %s (%s)\n", stim.protocol_seed,
-               o->seed ? "from -s" : "drawn now; recorded");
-    else if (rep && rep->ntrials)
-        printf("  seed           %s (%s)\n", stim.seed_arg,
-               o->seed ? "from -s" : "drawn now; recorded");
-    else
+    if (rep && rep->ntrials) {
+        const char *how = stim.seed_source == SEED_GIVEN ? "from -s" :
+            stim.seed_source == SEED_STATED ? "stated by the stimulus" :
+            "drawn for this check; a run draws its own unless you give -s";
+        if (stim.is_protocol)
+            printf("  seed           protocol seed %s (%s)\n", stim.protocol_seed, how);
+        else
+            printf("  seed           %s (%s)\n", stim.seed_arg, how);
+    } else
         printf("  seed           %s\n", o->seed ? o->seed : "drawn at the start and recorded");
 
     if (o->has_duration)

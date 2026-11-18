@@ -102,6 +102,11 @@ typedef struct {
     char *name, *seed, *text, *info;  /* one trial of a protocol (owned)     */
 } TrialDesc;
 
+/* Where the seed of a stimulus (or the protocol seed) came from. */
+enum { SEED_DRAWN = 0,           /* drawn at random for this check            */
+       SEED_GIVEN = 1,           /* -s                                       */
+       SEED_STATED = 2 };        /* written in the stimulus or protocol      */
+
 /* An opened stimulus. */
 typedef struct {
     int        is_protocol;
@@ -111,6 +116,7 @@ typedef struct {
     char       unit[16];         /* waveform: the unit handed to StimGen     */
     char       rate_arg[48];     /* the rate text handed to StimGen          */
     char       seed_arg[24];     /* a plain stimulus: its fixed seed         */
+    int        seed_source;      /* SEED_DRAWN, SEED_GIVEN or SEED_STATED    */
     int        n;                /* trials                                   */
     TrialDesc *td;               /* protocols: the trial list                */
     char       protocol_seed[24];

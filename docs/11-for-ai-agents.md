@@ -84,6 +84,9 @@ and hardware work is on hold. The next job is M3 (trial engine and loopback simu
 - **macOS has no `timeout`.** Use Python's `subprocess` timeout.
 - **`sed -i` needs a suffix argument on macOS.** Prefer Python for edits.
 - **HDF5 on the Mac is `hdf5-mpi`:** its `hdf5.h` includes `mpi.h`, so build with `mpicc`.
+- **Linking in the Dropbox folder fails** with "Resource deadlock avoided" because Dropbox holds
+  new files: build with `make BUILD=/some/folder/outside/Dropbox` and run `tests/test_stim.py`
+  with `LCG2_BUILD` set to it (`make test BUILD=...` does both).
 - **The Dropbox folder** may have online-only files, which fail to read ("Resource
   deadlock avoided"). Make files local first.
 - **`nrniv -nogui -c ...` hangs** reading stdin; use NEURON through Python 3.11.

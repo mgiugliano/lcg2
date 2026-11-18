@@ -176,6 +176,53 @@ def test_determinism(tmp):
 
 
 # --------------------------------------------------------------------------
+# 2b. Where the seed came from (the plan must not mislead)
+# --------------------------------------------------------------------------
+def test_seed_source(tmp):
+    def seed_line(r):
+        for l in r.stdout.splitlines():
+            if l.startswith("  seed"):
+                return l
+        return ""
+
+    drawn = "drawn for this check; a run draws its own unless you give -s"
+    stated = write(tmp, "seeded.sg", "sg 2 stimulus\nrate 20kHz\nseed 42\n"
+                   "channel P1 unit=pA { 1s ou(mean=0, sd=1, tau=5ms) }\n")
+    r = lcg2(["examples/camera.sg"])
+    check("plan: a drawn seed is labelled as drawn for the check", r.returncode == 0 and drawn in seed_line(r),
+          seed_line(r))
+    r = lcg2(["-s", "3", "examples/camera.sg"])
+    check("plan: a seed from -s says so", "seed           3 (from -s)" in seed_line(r), seed_line(r))
+    r = lcg2([stated])
+    check("plan: a seed stated by the stimulus is not called drawn",
+          "seed           42 (stated by the stimulus)" in seed_line(r), seed_line(r))
+    r = lcg2(["-s", "5", stated])
+    check("plan: -s beats the seed stated by the stimulus", "seed           5 (from -s)" in seed_line(r),
+          seed_line(r))
+    # and it is really -s that is used: equal to sg with -s 5
+    d1, d2 = os.path.join(tmp, "a"), os.path.join(tmp, "b")
+    os.makedirs(d1); os.makedirs(d2)
+    r1 = run([DUMP, "samples", d1, "-c", CFG, "-s", "5", stated])
+    r2 = run([SG, "render", "--text", "-s", "5", stated, "-o", os.path.join(d2, "x.txt")])
+    check("-s beats the seed stated by the stimulus, as in sg", r1.returncode == 0 and r2.returncode == 0 and
+          rows(os.path.join(d1, "stimulus.txt")) == rows(os.path.join(d2, "x.txt")), r1.stderr + r2.stderr)
+    r1 = run([DUMP, "samples", d1, "-c", CFG, stated])
+    r2 = run([SG, "render", "--text", stated, "-o", os.path.join(d2, "y.txt")])
+    check("a stated seed gives the same samples as sg (no -s)", r1.returncode == 0 and r2.returncode == 0 and
+          rows(os.path.join(d1, "stimulus.txt")) == rows(os.path.join(d2, "y.txt")), r1.stderr + r2.stderr)
+
+    pst = write(tmp, "pseed.sg", "sg 2 protocol\nseed 11\nrepeat 2\nstimulus {\n channel P1 unit=pA { 1s dc(1) }\n}\n")
+    r = lcg2(["-r", "20kHz", pst])
+    check("plan: a protocol seed stated by the protocol", "protocol seed 11 (stated by the stimulus)" in seed_line(r),
+          seed_line(r))
+    r = lcg2(["-r", "20kHz", "-s", "9", pst])
+    check("plan: -s beats a stated protocol seed", "protocol seed 9 (from -s)" in seed_line(r), seed_line(r))
+    r = lcg2(["-r", "20kHz", "examples/steps_protocol.sg"])
+    check("plan: a drawn protocol seed is labelled as drawn", drawn in seed_line(r) and "protocol seed" in seed_line(r),
+          seed_line(r))
+
+
+# --------------------------------------------------------------------------
 # 3. Trial order and seeds equal sg expand
 # --------------------------------------------------------------------------
 def test_expand(tmp):
@@ -273,12 +320,20 @@ def test_messages(tmp):
         f.write(b"sg 2 stimulus\x00\nrate 20kHz\n")
     r = lcg2([nul])
     check("a file with a NUL byte is refused", r.returncode == 1 and "NUL" in r.stderr, r.stderr)
-    # a protocol error names the trial
+    # a protocol error names the trial, and says that its line number counts the
+    # trial's own text (the protocol file has the mistake on another line)
     p = write(tmp, "protobad.sg",
-              "sg 2 protocol\nsweep amp = [1pA, 2pA]\nstimulus {\n channel P1 unit=pA {\n 1s dc($amp)\n 1s bogus(1)\n }\n}\n")
+              "sg 2 protocol\n# a comment\nsweep amp = [1pA, 2pA]\n\nstimulus {\n channel P1 unit=pA {\n"
+              " 1s dc($amp)\n 1s bogus(1)\n }\n}\n")
     r = lcg2(["-r", "20kHz", p])
-    check("an error in a protocol is reported with the protocol's name", r.returncode == 1 and p in r.stderr,
-          r.stderr)
+    check("an error in a protocol names the trial and whose line number it is",
+          r.returncode == 1 and r.stderr.startswith("lcg2: %s (trial 0000, line " % p) and
+          "of that trial's text): unknown generator" in r.stderr, r.stderr)
+    # an error in the protocol itself keeps the plain file:line form
+    p = write(tmp, "protobad2.sg", "sg 2 protocol\nsweep amp = from 1pA to\n")
+    r = lcg2(["-r", "20kHz", p])
+    check("an error in the protocol text itself is file:line", r.returncode == 1 and
+          r.stderr.startswith("lcg2: %s:" % p) and "trial" not in r.stderr, r.stderr)
 
 
 # --------------------------------------------------------------------------
@@ -404,6 +459,8 @@ def test_clipping(tmp):
     r = lcg2([w])
     check("a StimGen warning is printed", r.returncode == 0 and "lcg2: warning:" in r.stderr and
           "different durations" in r.stderr, r.stderr)
+    check("...on stderr only: stdout is the plan and nothing else",
+          r.stdout.startswith("LCG2 0.0.1, dry run") and "lcg2: warning" not in r.stdout, r.stdout[:200])
     r = lcg2(["-q", w])
     check("-q silences warnings", r.returncode == 0 and "warning" not in r.stderr, r.stderr)
     # a valid stimulus: a real run stops, but only after all the checks
@@ -535,9 +592,8 @@ def test_json(tmp):
 
     # mutation: the reader must never crash, and when it accepts, an independent parser agrees
     rnd = random.Random(5)
-    seeds = [header, r.stdout.decode() if False else header]
     expand = run([DUMP, "expand", tmp, "-c", CFG, "-s", "7", "-r", "20kHz", "examples/frozen_noise.sg"]).stdout
-    seeds.append(expand[:6000] + "]}" if False else expand)
+    seeds = [header, expand]
     bad_runs = 0
     for n in range(500):
         t = list(rnd.choice(seeds))
@@ -575,7 +631,7 @@ def main():
             return 1
     tmp = tempfile.mkdtemp()
     try:
-        for fn in (test_examples_are_valid, test_equal_to_sg, test_determinism, test_expand, test_rate, test_messages, test_mapping,
+        for fn in (test_examples_are_valid, test_equal_to_sg, test_determinism, test_seed_source, test_expand, test_rate, test_messages, test_mapping,
                    test_clipping, test_volts, test_json):
             sub = os.path.join(tmp, fn.__name__)
             os.makedirs(sub)

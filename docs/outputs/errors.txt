@@ -1,32 +1,44 @@
-$ lcg2 -c examples/lcg2.ini -n -T TTL -e x
+$ ./lcg2 -c examples/lcg2.ini -n -T TTL examples/ramp.sg
 lcg2: -T: output 'TTL' is a digital line; a plain waveform needs an analog output
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -n -r 300kHz -e x
+$ ./lcg2 -c examples/lcg2.ini -n -r 300kHz examples/ramp.sg
 lcg2: rate 300 kHz with 2 analog input(s) is above the board's 500 kS/s total (2 channel(s) at most 250 kHz each)
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -n -P nope -e x
+$ ./lcg2 -c examples/lcg2.ini -n -P nope examples/step.sg
 lcg2: profile 'nope' not found in examples/lcg2.ini (available: single, swap)
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -n -r 20kHZ -e x
+$ ./lcg2 -c examples/lcg2.ini -n -r 20kHZ examples/step.sg
 lcg2: -r: '20kHZ' is not a rate (examples: 20kHz, 10000, 2.5Hz)
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -n -t 30
+$ ./lcg2 -c examples/lcg2.ini -n -t 30
 lcg2: -t: '30' is not a duration (examples: 30s, 500ms, 2min; it must be above 0)
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -n -e x -m ic
+$ ./lcg2 -c examples/lcg2.ini -n -m ic examples/step.sg
 lcg2: -m: expected cc or vc, got 'ic'
 (exit status 1)
 
-$ lcg2 -n -c nosuch.ini -e x
+$ ./lcg2 -n -c nosuch.ini examples/step.sg
 lcg2: cannot open configuration file 'nosuch.ini': No such file or directory
 (exit status 1)
 
-$ lcg2 -c examples/lcg2.ini -e x
-lcg2: playing and recording are not implemented yet in this build (milestones M0 and M1); use -n to check a configuration
+$ ./lcg2 -c examples/low_limit.ini -n examples/step.sg
+lcg2: the stimulus, channel P1: sample 10000 (0.5 s): 200 pA needs 0.5 V at the amplifier command, above the limit of 0.1 V; 20000 of 40000 samples clip in all
+(exit status 1)
+
+$ ./lcg2 -c examples/single_pipette.ini -n -m vc examples/step.sg
+lcg2: channel 'P1' is in pA (a current), but [out P1] carries a voltage in vc mode (mV); use -m cc, or change the unit of the stimulus
+(exit status 1)
+
+$ ./lcg2 -c examples/lcg2.ini -n -P single examples/pair.sg
+lcg2: the stimulus has a channel 'P2', but [out P2] is skipped in this configuration
+(exit status 1)
+
+$ ./lcg2 -c examples/lcg2.ini examples/step.sg
+lcg2: playing and recording are not implemented yet in this build (milestones M0 to M2: the stimulus was read and checked); use -n to see the plan
 (exit status 1)
 

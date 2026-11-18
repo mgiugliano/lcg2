@@ -151,8 +151,8 @@ reference the tests compare with. Nothing is ever written inside the StimGen fol
 | Test | What it checks |
 |:--|:--|
 | `tests/run_tests.py` | about 180 cases: good and bad command lines and configurations, each with the exit status and a fragment of the message; the round trip of the resolved configuration; the pin check (a faithful copy accepted, a changed or missing file refused; skipped with a note if your StimGen differs from the pin); all examples load |
-| `tests/test_stim.py` | about 160 checks of the StimGen integration: samples equal `sg render` bit for bit (plain stimulus, protocols, plain waveform, `-e`, other units); trial order and seeds equal `sg expand`; two renders without a seed are identical; every combination of the rate rules; messages are translated; mapping, unit and clipping refusals; the volts and rest samples; the JSON reader against an independent parser, a table of hostile inputs and 500 mutations |
-| `build/unit` (`tests/unit.c`) | 35 checks of `out_check_value` (exact boundaries, NaN and infinity, a negative calibration scale) and of the exact rate fraction |
+| `tests/test_stim.py` | about 180 checks of the StimGen integration: samples equal `sg render` bit for bit (plain stimulus, protocols, plain waveform, `-e`, other units); trial order and seeds equal `sg expand`; two renders without a seed are identical; every combination of the rate rules; messages are translated; mapping, unit and clipping refusals; the volts and rest samples; the JSON reader against an independent parser, a table of hostile inputs and 500 mutations |
+| `build/unit` (`tests/unit.c`) | checks of `out_check_value` (exact boundaries, NaN and infinity, a negative calibration scale), of the exact rate fraction, and of the **error trap**: stimuli that StimGen rejects in seven different ways, alternating with good ones in one process, must each come back as an error and never end the program |
 | `tests/test_docs.py` | every `$ ./lcg2 ...` line in `docs/` and `README.md` runs with the expected exit status |
 
 Other checks used during development (not in `make test`): the whole suite run against

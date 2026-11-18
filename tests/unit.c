@@ -32,7 +32,9 @@
  */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "cli.h"
 #include "config.h"
 #include "stim.h"
 
@@ -53,6 +55,67 @@ static OutCh make(double limit, double off, double scl)
     o.cal_offset = off;
     o.cal_scale = scl;
     return o;
+}
+
+static char *dup(const char *s)
+{
+    char *p = (char *)malloc(strlen(s) + 1);
+    strcpy(p, s);
+    return p;
+}
+
+/*
+ * SPEC 3.1: an error inside StimGen must come back as an error, never end the
+ * program, because the outputs of a board may be live.  The library's die() calls
+ * exit() unless a trap is set; the sg_api_* functions set one.  Prove it: open
+ * stimuli that StimGen rejects in different ways, in turn with good ones, in one
+ * process.  If any rejection exited, this test would stop here without its summary.
+ */
+static void test_error_trap(void)
+{
+    static Config c;
+    Options opt;
+    Stim st;
+    Err e;
+    int round;
+    const char *bad[] = {
+        "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s bogus(1) }\n",          /* unknown name  */
+        "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s dc( }\n",                /* syntax        */
+        "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s file(\"no_such_file.txt\") }\n",
+        "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s dc(1) }\nchannel P1 unit=pA { 1s dc(2) }\n",
+        "sg 2 protocol\nsweep a = []\nstimulus {\n channel P1 unit=pA { 1s dc($a) }\n}\n",
+        "",
+        "\x01\x02 not a stimulus at all {{{",
+    };
+    const char *good = "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s dc(1) }\n";
+
+    memset(&c, 0, sizeof c);
+    memset(&opt, 0, sizeof opt);
+    c.mode = MODE_CC;
+    c.has_rate = 1; c.rate_p = 20000; c.rate_q = 1; strcpy(c.rate_text, "20kHz");
+    c.n_out = 1;
+    strcpy(c.out[0].name, "P1"); strcpy(c.out[0].line, "ao0");
+    c.out[0].gain[0] = 400; c.out[0].has_gain[0] = 1; strcpy(c.out[0].unit[0], "pA");
+    c.out[0].cal_scale = 1;
+
+    for (round = 0; round < 3; round++) {
+        size_t k;
+        for (k = 0; k < sizeof bad / sizeof *bad; k++) {
+            int rc = stim_open(&st, dup(bad[k]), "bad.sg", &opt, &c, &e);
+            CHECK(rc == -1);
+            CHECK(strlen(e.msg) > 0 && strncmp(e.msg, "sg:", 3) != 0);
+            if (rc == 0) stim_free(&st);
+            /* the library still works afterwards */
+            rc = stim_open(&st, dup(good), "good.sg", &opt, &c, &e);
+            CHECK(rc == 0);
+            if (rc == 0) {
+                Trial t;
+                CHECK(stim_render(&st, 0, &t, &e) == 0 && t.n == 20000);
+                trial_free(&t);
+                stim_free(&st);
+            }
+        }
+    }
 }
 
 int main(void)
@@ -116,6 +179,8 @@ int main(void)
     CHECK(stim_rate_fraction(NAN, &p, &q) == -1);
     CHECK(stim_rate_fraction(INFINITY, &p, &q) == -1);
     CHECK(stim_rate_fraction(1.0 / 3.0, &p, &q) == -1);           /* not decimal */
+
+    test_error_trap();
 
     printf("unit tests: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

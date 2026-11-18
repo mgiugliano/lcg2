@@ -78,7 +78,7 @@ $ ./lcg2 -c examples/single_pipette.ini -n examples/step.sg
 
 ```text
   rate           20 kHz (stated by the stimulus)
-  seed           ... (drawn now; recorded)
+  seed           ... (drawn for this check; a run draws its own unless you give -s)
   work           play the stimulus in examples/step.sg
   stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
   channels       P1 (pA)  ->  [out P1] on ao0, peak 0.5 V of the limit 5 V
@@ -402,7 +402,7 @@ $ ./lcg2 -c examples/lcg2.ini -n -P single examples/steps_protocol.sg
 
 ```text
   rate           20 kHz (from the configuration; the stimulus states none)
-  seed           protocol seed 14272848968180529564 (drawn now; recorded)
+  seed           protocol seed 14272848968180529564 (drawn for this check; a run draws its own unless you give -s)
   stimulus       a protocol of 39 trials: period 5s, start immediately; each trial 40000 samples (2 s)
   channels       P1 (pA)  ->  [out P1] on ao0, peak 0.75 V of the limit 5 V
   idle           TTL (not named: they hold their rest value)

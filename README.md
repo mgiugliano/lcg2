@@ -107,8 +107,8 @@ $ make sanitize        # optional: the same suites under AddressSanitizer and UB
 
 `make test` must end with `repository clean: no data file or run folder was left by the tests`. Expected totals on a machine with
 everything installed: 185 unit, 183 configuration, 186 stimulus, 85 engine, 100 recording, 106 NEURON and 25 multi-patch checks, and the
-commands of the manual. (On Ubuntu the NEURON suite reports fewer checks, and the macOS-only disk-image check is skipped, each with a
-note.)
+commands of the manual. (On Ubuntu, without matplotlib: 98 recording checks, because the macOS-only disk-image check is skipped, and 105 NEURON checks, because
+the plotting check is skipped, each with a note. All 76 commands of the manual run there too.)
 
 **If the link step fails with "Resource deadlock avoided"**, the folder is inside Dropbox (or another sync service that holds new
 files). Build outside it: `make BUILD=/tmp/lcg2build` (and `make test BUILD=/tmp/lcg2build`).

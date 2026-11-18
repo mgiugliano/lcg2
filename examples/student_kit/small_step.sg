@@ -1,0 +1,11 @@
+sg 2 stimulus
+# A small hyperpolarising step: the potential relaxes exponentially, which gives the input resistance
+# (the size of the response) and the membrane time constant (its speed).
+rate 20kHz
+
+channel P1 unit=pA {
+    100ms dc(0)
+    @step
+    300ms dc(-20)
+    300ms dc(0)
+}

@@ -54,7 +54,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define LCG2_VERSION "0.1.0"
+#define LCG2_VERSION "0.1.1"
 
 /* ------------------------------------------------------------------ */
 /* Error messages                                                      */

@@ -1,7 +1,7 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
 > **Status: built (milestone M3b).** `device = neuron` works on the development Mac with NEURON 8.2.6
-> (Python 3.11). It is tested by `tests/test_neuron.py` (66 checks). It has **not** been run on Linux or
+> (Python 3.11). It is tested by `tests/test_neuron.py` (77 checks). It has **not** been run on Linux or
 > on any other NEURON version. The numerical result equals a plain NEURON script to 1e-9 mV (see
 > [How a trial is simulated](#how-a-trial-is-simulated)).
 
@@ -9,7 +9,8 @@
 stimulus files and the same configuration, except that the cells are virtual. You never write NEURON
 code, and you never run NEURON yourself: `lcg2` starts it, builds the cells that your configuration
 describes, plays your stimulus into them, and records what the electrodes would have measured. Hand a
-student the folder [`examples/student_kit/`](../examples/student_kit/) and tell them to train.
+student the folder [`examples/student_kit/`](../examples/student_kit/) and tell them to train; the nine tutorials
+with figures are in [16 Tutorials with virtual cells](16-neuron-tutorials.md).
 
 ```text
   lcg2  ── stimulus (StimGen) ── volts ──►  inverse of the amplifier  ──► pA / mV ──┐
@@ -117,10 +118,10 @@ package that holds the configuration and its model files works from anywhere. Th
 
 ### Built in
 
-* **`hh_soma`**: one 20 µm Hodgkin–Huxley compartment. Parameters: `diam`, `L` (µm), `cm` (µF/cm²), `Ra`
+* **`hh_soma`**: one 20 µm Hodgkin–Huxley compartment. Parameters: `diam`, `length` (µm), `cm` (µF/cm²), `ra`
   (Ω·cm), `gnabar`, `gkbar`, `gl` (S/cm²), `el` (mV).
-* **`ball_and_stick`**: the same soma with one passive dendrite. Adds `dend_L`, `dend_diam` (µm), `dend_nseg`,
-  `dend_Ra`, `dend_g` (S/cm²), `dend_e` (mV). Sections: `soma` and `dend`; try `electrode = dend(1)`.
+* **`ball_and_stick`**: the same soma with one passive dendrite. Adds `dend_length`, `dend_diam` (µm), `dend_nseg`,
+  `dend_ra`, `dend_g` (S/cm²), `dend_e` (mV). Sections: `soma` and `dend`; try `electrode = dend(1)`.
 
 ### A model in Python
 

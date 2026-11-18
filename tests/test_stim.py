@@ -460,7 +460,7 @@ def test_clipping(tmp):
     check("a StimGen warning is printed", r.returncode == 0 and "lcg2: warning:" in r.stderr and
           "different durations" in r.stderr, r.stderr)
     check("...on stderr only: stdout is the plan and nothing else",
-          r.stdout.startswith("LCG2 0.1.0, dry run") and "lcg2: warning" not in r.stdout, r.stdout[:200])
+          r.stdout.startswith("LCG2 0.1.1, dry run") and "lcg2: warning" not in r.stdout, r.stdout[:200])
     r = lcg2(["-q", w])
     check("-q silences warnings", r.returncode == 0 and "warning" not in r.stderr, r.stderr)
     # a valid stimulus: a real run does all the checks first, then plays on the simulator (M3)

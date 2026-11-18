@@ -131,7 +131,7 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
    compiled into a cache), electrodes by unit, synapses, and steps them. It keeps the protocol on a private copy of
    fd 1 and sends fd 1 to the log: NEURON prints to stdout.
 3. `-n` runs the adapter in `check` mode (`neuron_check`), so model mistakes show before a run.
-4. Tests: `tests/test_neuron.py` (66 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
+4. Tests: `tests/test_neuron.py` (77 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
    `examples/student_kit/` is the package for students and is tested too.
 
 **Traps specific to this backend.** NEURON output on stdout would corrupt the pipe (hence the fd juggling);

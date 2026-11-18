@@ -213,13 +213,13 @@ def snapshot(h):
 
 
 def build_hh_soma(h, name, p):
-    known = dict(diam=20.0, L=20.0, cm=1.0, Ra=35.4, gnabar=0.12, gkbar=0.036, gl=0.0003, el=-54.3)
+    known = dict(diam=20.0, length=20.0, cm=1.0, ra=35.4, gnabar=0.12, gkbar=0.036, gl=0.0003, el=-54.3)
     check_params(name, "hh_soma", p, known)
     k = dict(known)
     k.update(p)
     c = CellObj(name)
     c.soma = h.Section(name="soma", cell=c)
-    c.soma.L, c.soma.diam, c.soma.cm, c.soma.Ra = k["L"], k["diam"], k["cm"], k["Ra"]
+    c.soma.L, c.soma.diam, c.soma.cm, c.soma.Ra = k["length"], k["diam"], k["cm"], k["ra"]
     c.soma.nseg = 1
     c.soma.insert("hh")
     for seg in c.soma:
@@ -228,15 +228,15 @@ def build_hh_soma(h, name, p):
 
 
 def build_ball_and_stick(h, name, p):
-    known = dict(diam=20.0, L=20.0, cm=1.0, Ra=35.4, gnabar=0.12, gkbar=0.036, gl=0.0003, el=-54.3,
-                 dend_L=200.0, dend_diam=1.0, dend_nseg=11, dend_Ra=100.0, dend_g=0.0001, dend_e=-65.0)
+    known = dict(diam=20.0, length=20.0, cm=1.0, ra=35.4, gnabar=0.12, gkbar=0.036, gl=0.0003, el=-54.3,
+                 dend_length=200.0, dend_diam=1.0, dend_nseg=11, dend_ra=100.0, dend_g=0.0001, dend_e=-65.0)
     check_params(name, "ball_and_stick", p, known)
     k = dict(known)
     k.update(p)
     c = build_hh_soma(h, name, {a: b for a, b in p.items() if not a.startswith("dend_")})
     c.dend = [h.Section(name="dend", cell=c)]
     d = c.dend[0]
-    d.L, d.diam, d.nseg, d.Ra, d.cm = k["dend_L"], k["dend_diam"], int(k["dend_nseg"]), k["dend_Ra"], k["cm"]
+    d.L, d.diam, d.nseg, d.Ra, d.cm = k["dend_length"], k["dend_diam"], int(k["dend_nseg"]), k["dend_ra"], k["cm"]
     d.insert("pas")
     for seg in d:
         seg.pas.g, seg.pas.e = k["dend_g"], k["dend_e"]
@@ -352,8 +352,8 @@ def builtin_biophysics(h, which, cell, sections):
     if which not in BUILTIN_BIOPHYSICS:
         raise Problem("biophysics: '%s' is not a built-in (%s) and not a file" % (which, ", ".join(BUILTIN_BIOPHYSICS)))
     for sec in sections:
-        sec.Ra, sec.cm = 35.4 if which == "hh_soma" and sec is cell.soma else 100.0, 1.0
-        if which == "hh_soma" and sec is cell.soma:
+        sec.Ra, sec.cm = 35.4 if which == "hh_soma" and sec == cell.soma else 100.0, 1.0
+        if which == "hh_soma" and sec == cell.soma:
             sec.insert("hh")
         else:
             sec.insert("pas")

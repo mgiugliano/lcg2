@@ -1,0 +1,10 @@
+sg 2 stimulus
+# A long hyperpolarising step: with Ih the potential first dips, then sags back (use rig_ih.ini).
+rate 20kHz
+
+channel P1 unit=pA {
+    300ms dc(0)
+    @step
+    1s    dc(-100)
+    500ms dc(0)
+}

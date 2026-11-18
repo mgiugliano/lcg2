@@ -2,7 +2,7 @@
 def biophysics(cell, gnabar=0.12):
     for sec in cell.all:
         sec.Ra, sec.cm = 100, 1
-        if sec is cell.soma:
+        if sec == cell.soma:
             sec.insert("hh")
             sec.gnabar_hh = gnabar
         else:

@@ -25,7 +25,11 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
 | `rig_pair.ini` | two cells with a synapse (patch both) |
 | `rig_morphology.ini` | a cell made from a morphology file, with your own biophysics and initialisation |
 | `current_steps.sg`, `vc_steps.sg`, `pair_pulse.sg` | stimuli: current steps, voltage steps (`-m vc`), a pulse |
-| `characterise.py` | measures a recording: `fi`, `iv`, `psp` |
+| `characterise.py` | measures a recording: `fi`, `iv`, `psp`, `rin`, `sag` |
+| `plot_run.py` | draws a recording (needs matplotlib) |
+| `small_step.sg`, `sag_step.sg`, `current_steps_fine.sg` | more stimuli: input resistance, the sag, the firing threshold |
+| `rig_ih.ini`, `soma_ih.py`, `channels/ih.mod` | a cell with your own channel (compiled automatically) |
+| `rig_custom.ini`, `two_compartment.py` | a cell written from scratch in Python |
 | `pyramidal.py`, `simple_cell.hoc`, `tiny.swc`, `cell_tuning.py`, `start_depolarised.py` | cell models, as examples to copy |
 
 ## Exercises
@@ -44,11 +48,14 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
    answer? Change `weight`, `delay` and `type` in `[synapse P1_P2]`.
 6. **Your own cell.** Copy `tiny.swc`, `cell_tuning.py`, `rig_morphology.ini`; edit the channels in
    `cell_tuning.py` (conductances, which sections have what) and repeat 1 and 2.
-7. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
+7. **A channel of your own.** `rig_ih.ini` and `sag_step.sg`, then `characterise.py sag`; compare `-P noih`; edit
+   `channels/ih.mod` (the half-activation voltage) and run again. Tutorial H explains it.
+8. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
    threshold, adaptation, the membrane time constant from a small step).
 
 Things to keep in mind, as on a real rig: the **range** of an input clips what is too large (a warning says so);
 the current clamp command is in pA, the voltage clamp command is in mV; each trial starts from where the previous
 one left the cell, so a short `period` leaves a cell that has not recovered.
 
-More: [`../../docs/14-neuron-models.md`](../../docs/14-neuron-models.md).
+Step-by-step tutorials with figures: [`../../docs/16-neuron-tutorials.md`](../../docs/16-neuron-tutorials.md).
+Reference: [`../../docs/14-neuron-models.md`](../../docs/14-neuron-models.md).

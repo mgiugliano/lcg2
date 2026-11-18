@@ -29,7 +29,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | You are... | Read, in this order |
 |:--|:--|
 | A user who wants to try it | [02 Quick start](02-quickstart.md), then [03 Tutorials](03-tutorials.md) |
-| A student training on virtual cells | [`examples/student_kit/`](../examples/student_kit/), then [14 Virtual cells](14-neuron-models.md) |
+| A student training on virtual cells | [`examples/student_kit/`](../examples/student_kit/), then [16 Tutorials with virtual cells](16-neuron-tutorials.md) and [14 Virtual cells](14-neuron-models.md) |
 | A user writing a rig configuration | [06 Configuration reference](06-config-reference.md), then [04 Concepts](04-concepts.md) |
 | A user with an error message | [12 Error messages](12-error-messages.md) |
 | A user who wants to analyse a recording | [13 Data format](13-data-format.md) |
@@ -53,6 +53,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
 | [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
+| [16 Tutorials with virtual cells](16-neuron-tutorials.md) | nine tutorials with figures from real runs: first cell, f-I, voltage clamp, synapses, your own Python cell, morphology, your own channel |
 | [15 Testing](15-testing.md) | what `make test` proves, what each suite needs, what is not tested |
 | [14 Virtual cells](14-neuron-models.md) | `device = neuron`: describe cells and synapses in the configuration, bring your own models, train in patching |
 
@@ -62,7 +63,9 @@ All figures are in [`figures/`](figures/) as SVG files. They are drawn by
 [`figures/make_figures.py`](figures/make_figures.py); edit the script and run
 `python3 docs/figures/make_figures.py` to regenerate them. Solid green means
 built and tested, dashed grey means designed, dashed amber means waiting for a
-decision.
+decision. The figures of the neuron tutorials (`fig-nrn-*.svg`) are different: they are plots of **real
+recordings**, drawn by [`figures/make_neuron_figures.py`](figures/make_neuron_figures.py), which runs `lcg2` itself
+(`python3.11 docs/figures/make_neuron_figures.py`; it needs NEURON, h5py and matplotlib).
 
 ![Overview](figures/fig-overview.svg)
 

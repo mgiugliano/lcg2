@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 (2026-11-18)
+
+- **Fixed:** with a morphology file, the built-in `biophysics = hh_soma` (and the kit's `cell_tuning.py`) compared
+  sections with `is`, which is never true for NEURON sections, so the soma got no Hodgkin-Huxley channels and the cell was
+  purely passive. Found while drawing the tutorial figures; now tested (the morphology cell fires).
+- **Changed:** the parameters `L` and `Ra` of `hh_soma` are now `length` and `ra` (and `dend_L`, `dend_Ra` of
+  `ball_and_stick` are `dend_length`, `dend_ra`): configuration keys are lower case, so the old names could not be
+  written in a file at all.
+- **Added:** `docs/16-neuron-tutorials.md`, nine tutorials with figures drawn from real runs
+  (`docs/figures/make_neuron_figures.py`); more kit files (`small_step.sg`, `sag_step.sg`, `current_steps_fine.sg`,
+  an Ih channel and cell, a from-scratch Python cell, profiles `big`, `hot`, `ballstick_dend`, `strong`, `noih`,
+  `short`, `long`); `characterise.py rin` and `sag`; `plot_run.py`. The tests check every number the tutorials quote.
+
 ## 0.1.0 (2026-11-18)
 
 The first complete release of the software side. **No hardware backend**: the board (NI USB-6343) waits for the

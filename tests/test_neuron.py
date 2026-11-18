@@ -577,6 +577,11 @@ def test_kit(tmp):
     work = newdir(tmp, "kit_morph")
     r = lcg(["-q", "-c", os.path.join(d, "rig_morphology.ini"), os.path.join(d, "current_steps.sg")], work)
     check("the kit: the morphology rig runs", r.returncode == 0, r.stderr)
+    if r.returncode == 0:
+        with h5py.File(h5_of(work), "r") as f:
+            v = f["trial_0008/ai/P1"][:]
+        check("the morphology cell has HH channels in its soma: it fires on 300 pA", (v > 0).any() and v[:2000].max() < -60,
+              "max %g" % v.max())
 
 
 def test_hoc_hooks(tmp):
@@ -589,11 +594,73 @@ def test_hoc_hooks(tmp):
           r.returncode == 0 and "rests at -50.0 mV" in r.stdout, r.stdout + r.stderr)
 
 
+def test_tutorials(tmp):
+    """The numbers the tutorials (docs/16) quote: they must stay true."""
+    d = newdir(tmp, "tut")
+    for f in os.listdir(KIT):
+        p = os.path.join(KIT, f)
+        if f.endswith(".ini"):
+            write(os.path.join(d, f), open(p).read().replace("/opt/homebrew/opt/python@3.11/bin/python3.11", PY))
+        elif os.path.isdir(p):
+            shutil.copytree(p, os.path.join(d, f))
+        else:
+            shutil.copy(p, d)
+    ch = os.path.join(d, "characterise.py")
+    runs = [0]
+
+    def measure(rig, stim, what, *extra):
+        runs[0] += 1
+        w = newdir(tmp, "tut_run_%d" % runs[0])
+        r = lcg(["-q"] + list(extra) + ["-c", os.path.join(d, rig), os.path.join(d, stim)], w)
+        if r.returncode != 0:
+            return "RUN FAILED: " + r.stderr
+        return go([PY, ch, what, h5_of(w)], w).stdout
+
+    def num(out, key):
+        import re
+        m = re.search(key + r"[^0-9-]*(-?[0-9.]+)", out)
+        return float(m.group(1)) if m else float("nan")
+
+    o = measure("rig.ini", "small_step.sg", "rin")
+    check("tutorial A: input resistance 76.7 MOhm, time constant under 1 ms", abs(num(o, "input resistance") - 76.7) < 0.2
+          and num(o, "time constant") < 1.0, o)
+    o = measure("rig.ini", "small_step.sg", "rin", "-P", "big")
+    check("tutorial A: the big cell has an input resistance of 17.5 MOhm", abs(num(o, "input resistance") - 17.5) < 0.2, o)
+    o = measure("rig.ini", "current_steps_fine.sg", "fi")
+    check("tutorial B: repetitive firing starts at 80 pA, a single spike at 50 pA", "first step with a spike: 50 pA" in o
+          and "repetitive firing (5 spikes or more): 80 pA" in o, o)
+    o = measure("rig.ini", "small_step.sg", "rin", "-P", "ballstick_dend")
+    check("tutorial D: 304 MOhm at the tip of the dendrite", abs(num(o, "input resistance") - 303.8) < 1.0, o)
+    o = measure("rig_pair.ini", "pair_pulse.sg", "psp")
+    check("tutorial E: a weak synapse gives a 2.2 mV PSP", abs(num(o, "P2 rises") - 2.19) < 0.05, o)
+    o = measure("rig_pair.ini", "pair_pulse.sg", "psp", "-P", "strong")
+    check("tutorial E: a strong synapse makes P2 fire (a rise of 100 mV or more)", num(o, "P2 rises") > 100, o)
+    o1 = measure("rig_custom.ini", "small_step.sg", "rin", "-P", "short")
+    o2 = measure("rig_custom.ini", "small_step.sg", "rin", "-P", "long")
+    check("tutorial F: a longer dendrite lowers the input resistance (75.6 against 65.7 MOhm)",
+          abs(num(o1, "input resistance") - 75.6) < 0.3 and abs(num(o2, "input resistance") - 65.7) < 0.3, o1 + o2)
+    o = measure("rig_morphology.ini", "small_step.sg", "rin")
+    check("tutorial G: the morphology cell has HH in its soma (about 70 MOhm and a time constant of a millisecond, not a passive 400 MOhm)",
+          50 < num(o, "input resistance") < 100 and num(o, "time constant") < 3, o)
+    o = measure("rig_ih.ini", "sag_step.sg", "sag")
+    o2 = measure("rig_ih.ini", "sag_step.sg", "sag", "-P", "noih")
+    check("tutorial H: Ih makes a sag (ratio 2.1) and without it there is none (1.00); the .mod file compiled",
+          1.9 < num(o, "sag ratio") < 2.3 and abs(num(o2, "sag ratio") - 1.0) < 0.01, o + o2)
+    try:
+        import matplotlib   # noqa: F401
+        w = newdir(tmp, "tut_plot")
+        r = lcg(["-q", "-c", os.path.join(d, "rig.ini"), os.path.join(d, "small_step.sg")], w)
+        p = go([PY, os.path.join(d, "plot_run.py"), h5_of(w), "0", os.path.join(w, "t.svg")], w)
+        check("plot_run.py draws a trial to a file", p.returncode == 0 and os.path.getsize(os.path.join(w, "t.svg")) > 1000, p.stderr)
+    except ImportError:
+        print("      (plot_run.py not tested: no matplotlib)")
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
         for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
-                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_kill_adapter, test_ctrl_c):
+                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

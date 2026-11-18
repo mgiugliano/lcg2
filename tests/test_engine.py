@@ -79,7 +79,7 @@ class Out:
             if w[0] == "T":
                 self.trials.append(dict(index=int(w[1]), name=w[2], scheduled=int(w[3]), start=int(w[4]),
                                         end=int(w[5]), delay=int(w[6]), latency=int(w[7]),
-                                        recorded=int(w[8]), incomplete=int(w[9])))
+                                        recorded=int(w[8]), incomplete=int(w[9]), utc=w[10] if len(w) > 10 else ""))
             elif w[0] == "I":
                 self.inputs[(int(w[1]), w[2])] = dict(n=int(w[3]), mn=float(w[4]), mx=float(w[5]),
                                                       mean=float(w[6]), over=int(w[7]), fnv=w[8])
@@ -163,6 +163,25 @@ def test_timing(tmp):
     check("gap: every trial starts 2 s (and its own latency) after the previous end",
           all(o.trials[i]["start"] == ends[i - 1] + 2 * S + 15000000 for i in range(1, 4)), o.raw)
 
+    # the wall-clock time of each trial: to the millisecond, from the run's start plus the exact offset
+    p = protocol(tmp, "utc.sg", "period 5s", dur="2s")
+    o = run_et([], base + [p])
+    utc = [t["utc"] for t in o.trials]
+    check("each trial has a UTC start time to the millisecond", all(re.match(
+        r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$", u) for u in utc), utc)
+
+    def ms(u):
+        h, m, sec = u[11:-1].split(":")
+        return (int(h) * 3600 + int(m) * 60) * 1000 + round(float(sec) * 1000)
+    d = [ms(utc[i + 1]) - ms(utc[i]) for i in range(3)]
+    check("...and they are 5 s apart, as the clock says (not all in one second)",
+          all(abs(x - 5000) <= 1 for x in d), (utc, d))
+    p = protocol(tmp, "fastutc.sg", "gap 0s", dur="0.1s", repeat=4)
+    o = run_et(["--latency", "15000000"], base + [p])
+    utc = [ms(t["utc"]) for t in o.trials]
+    check("trials a tenth of a second apart get different times", len(set(utc)) == 4 and
+          all(abs((utc[i + 1] - utc[i]) - 115) <= 1 for i in range(3)), (utc, o.starts()))
+
     # a plain stimulus is one trial
     o = run_et([], ["examples/step.sg"])
     check("a plain stimulus is one trial at time 0", o.starts() == [0] and o.trials[0]["end"] == 2 * S and
@@ -244,6 +263,24 @@ def test_rest(tmp):
           o.status == 3 and "told to fail" in o.error and o.events == "ORPRPRC", o.raw)
     check("...the failed trial was reported to the sink as incomplete", o.trials[-1]["incomplete"] == 1 and
           at_rest(o), o.raw)
+
+    # a failure to put the outputs at rest is never silent (on a board it is the worst failure there is)
+    p2 = protocol(tmp, "twotrials.sg", "period 5s", repeat=2)
+    b2 = ["-s", "1", "-r", "20kHz", p2]
+    o = run_et(["--fail-rest", "1"], b2, cfg=cfg)
+    check("the first rest fails: the run does not start, and says the outputs may not be at rest",
+          o.status == 3 and o.kv["started"] == 0 and o.kv["rest_failed"] == 1 and
+          "outputs may NOT be at rest" in o.stderr and o.events == "OC", o.raw + o.stderr)
+    o = run_et(["--fail-rest", "3"], b2, cfg=cfg)
+    check("a rest between trials fails: the run stops, and the final attempt fails loudly too",
+          o.status == 3 and o.kv["rest_failed"] == 1 and "outputs may NOT be at rest" in o.stderr and
+          "told to fail" in o.error, o.raw + o.stderr)
+    o = run_et(["--fail-rest", "4"], b2, cfg=cfg)
+    check("only the very last rest fails: a run that otherwise succeeded is reported as failed",
+          o.status == 3 and o.kv["completed"] == 2 and o.kv["rest_failed"] == 1 and
+          "outputs may NOT be at rest" in o.stderr, o.raw + o.stderr)
+    o = run_et([], b2, cfg=cfg)
+    check("(and with no failure the report says so)", o.kv["rest_failed"] == 0 and "NOT" not in o.stderr)
 
     # before anything is touched a refusal is not a failure of the run
     o = run_et([], ["-s", "1", "-r", "20kHz", "-e", "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s dc(1) }"],
@@ -405,6 +442,23 @@ def test_signals(tmp):
               "aborted after 0 of 3 trial(s): outputs at rest" in seen + rest, seen + rest)
         check("%s: nothing on stdout" % name, out == "")
         p.stdin.close()
+
+    # after a REAL signal, the outputs are really at rest: measured, not just announced.
+    cfg = write(tmp, "restsig.ini", open(os.path.join(ROOT, CFG)).read().replace("[out P2]\nline = ao1", "[out P2]\nline = ao1\nrest = 100"))
+    rp = protocol(tmp, "restsig.sg", "period 5s\nstart on trigger", repeat=3, rest=50)
+    p = subprocess.Popen([LCG2, "-v", "-c", cfg, "-r", "20kHz", rp], cwd=ROOT, stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    seen = read_until(p, "press Enter")
+    p.send_signal(signal.SIGINT)
+    try:
+        p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+    rest = p.stderr.read().decode("utf-8", "replace")
+    check("after a real SIGINT the simulator's outputs are at the expected rest values (0.125 V, 0.25 V, 0)",
+          p.returncode == 2 and "outputs left at ao0=0.125 V ao1=0.25 V port0/line0=0" in seen + rest,
+          "rc=%s %s" % (p.returncode, seen + rest))
+    p.stdin.close()
 
     # a second Ctrl-C must not skip the rest step
     p = subprocess.Popen([LCG2, "-c", CFG, "-r", "20kHz", waiting], cwd=ROOT, stdin=subprocess.PIPE,

@@ -47,11 +47,13 @@ typedef struct {
     int64_t latency_ns;       /* time from play() until the outputs start     */
     double  noise_sd;         /* volts, Gaussian, on every input              */
     uint64_t seed;            /* the noise of trial t is derived from this    */
+    int     fail_rest_from;   /* if > 0, the set_rest calls numbered from this one (1 = the first) fail: for tests */
+    int     report_state;     /* at close(), print where the outputs were left */
 } SimOpts;
 
 /* What the simulator saw, for the tests. */
 typedef struct {
-    int           nplay, nrest, ntrigger;
+    int           nplay, nrest, ntrigger, nrest_calls;
     char          events[512];            /* O open, R rest, T trigger, P play, p play stopped early, C close */
     double        ao_state[4];            /* volts last driven on ao0..ao3    */
     int           ao_known[4];

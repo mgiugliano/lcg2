@@ -13,6 +13,8 @@ options (give the value as a separate word, e.g. -r 20kHz):
   -e TEXT     stimulus text given here instead of in a file
   -p PREFIX   prefix of the names of the output files
   -n          dry run: check everything, print the plan, play nothing
+  -R          real time: a simulator waits as a real board would (the default
+              is virtual time: as fast as possible, with exact simulated times)
   -q, -v      quieter, more verbose
   -h          this help
 

@@ -105,13 +105,13 @@ def overview():
     s.box(290, 175, 350, 70, "trials as samples, units and every sample checked\nonly sg_api_* of StimGen 2 (stim.c, json.c)",
           "built", title="2  Render with StimGen   (M2)")
     s.box(290, 265, 350, 70, "schedule, rest values, delays, Ctrl-C = outputs to rest",
-          "plan", title="3  Trial engine   (M3)")
+          "built", title="3  Trial engine   (M3)")
     s.box(290, 355, 350, 70, "one interface: write outputs, read inputs",
-          "plan", title="4  Backend interface   (M3)")
+          "built", title="4  Backend interface   (M3, provisional)")
     for y in (155, 245, 335):
         s.arrow(465, y, 465, y + 20)
     # backends
-    s.box(270, 480, 120, 56, "built-in\nloopback", "plan", size=13, title=None)
+    s.box(270, 480, 120, 56, "built-in\nloopback", "built", size=13, title=None)
     s.box(405, 480, 130, 56, "NEURON\nsimulator (M3b)", "plan", size=13)
     s.box(550, 480, 160, 56, "NI USB-6343\n(M6, host undecided)", "wait", size=13)
     s.arrow(330, 425, 330, 480)
@@ -238,7 +238,7 @@ def timeline():
     s.text(20, 335, "time", size=12, anchor="start")
     s.text(470, 385, "Between trials the outputs hold their rest value (dashed line); nothing is recorded.", size=13)
     s.text(470, 407, "A trial that cannot start on time (previous one still running, USB start-up) starts as soon as it can;", size=13)
-    s.text(470, 427, "the real start time and delay of every trial are recorded and printed.  (Designed: M3 and M4.)",
+    s.text(470, 427, "the real start time and delay of every trial are recorded and printed.  (Built, M3; the data file is M4.)",
            size=13, fill=GREY)
     s.save("fig-timeline.svg", "Trial timing",
            "Two timing modes of a protocol. With period, trials start at fixed intervals; with gap, each trial starts a fixed "
@@ -278,7 +278,7 @@ def milestones():
         ("M0", "skeleton, Makefile,\nStimGen pin, inih", "built"),
         ("M1", "config, profiles,\nCLI, -n dry run", "built"),
         ("M2", "StimGen integration,\nunits, clip check", "built"),
-        ("M3", "trial engine,\nloopback simulator", "plan"),
+        ("M3", "trial engine,\nloopback simulator", "built"),
         ("M3b", "NEURON backend\n(virtual cells)", "plan"),
         ("M4", "HDF5 + run folder,\nlog, checksums", "plan"),
         ("M5", "simulator test\nsuite", "plan"),
@@ -301,7 +301,7 @@ def milestones():
 
 def stimgen_flow():
     s = Svg(940, 400)
-    s.text(470, 24, "How a protocol becomes trials (StimGen 2, built) and then a run (LCG2, M3 onwards)", size=17, weight="bold")
+    s.text(470, 24, "How a protocol becomes trials (StimGen 2) and then a run (LCG2): built up to the backend", size=17, weight="bold")
     s.box(20, 60, 190, 80, "sweep amp = -300..300pA\nrepeat 3, order shuffled\nperiod 5s", "blue", size=12, title="protocol text")
     s.box(250, 60, 190, 80, "ordered list of trials,\neach with condition,\nseed, timing", "built", size=12, title="sg_api_expand")
     s.box(480, 60, 200, 80, "one trial at a time:\nsamples of every channel\nin pA / mV / 0-1", "built", size=12, title="sg_api_render_trial")
@@ -310,8 +310,8 @@ def stimgen_flow():
         s.arrow(a, 100, b, 100)
     s.text(470, 180, "Before the run, EVERY trial is rendered and checked. If any sample would clip, nothing is played and the error names trial, channel and sample.",
            size=13)
-    s.box(20, 215, 210, 80, "trial 1, 2, 3 ... N\none after the other,\nrendered again when needed", "plan", size=12, title="engine (M3)")
-    s.box(270, 215, 210, 80, "write outputs, read inputs,\nrest values in between", "plan", size=12, title="backend")
+    s.box(20, 215, 210, 80, "trial 1, 2, 3 ... N\none after the other,\nrendered again when needed", "built", size=12, title="engine (M3)")
+    s.box(270, 215, 210, 80, "write outputs, read inputs,\nrest values in between", "built", size=12, title="backend (loopback)")
     s.box(520, 215, 190, 80, "block per trial,\nflushed after each", "plan", size=12, title="HDF5 writer (M4)")
     s.box(750, 215, 170, 80, "config, command,\nstimulus, trials,\nlog, SHA-256", "plan", size=12, title="hidden folder")
     for a, b in ((230, 270), (480, 520), (710, 750)):

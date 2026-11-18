@@ -45,5 +45,5 @@
 <text x="20" y="335" font-size="12" text-anchor="start" font-weight="normal" fill="#111827" dominant-baseline="central">time</text>
 <text x="470" y="385" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">Between trials the outputs hold their rest value (dashed line); nothing is recorded.</text>
 <text x="470" y="407" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">A trial that cannot start on time (previous one still running, USB start-up) starts as soon as it can;</text>
-<text x="470" y="427" font-size="13" text-anchor="middle" font-weight="normal" fill="#6b7280" dominant-baseline="central">the real start time and delay of every trial are recorded and printed.  (Designed: M3 and M4.)</text>
+<text x="470" y="427" font-size="13" text-anchor="middle" font-weight="normal" fill="#6b7280" dominant-baseline="central">the real start time and delay of every trial are recorded and printed.  (Built, M3; the data file is M4.)</text>
 </svg>

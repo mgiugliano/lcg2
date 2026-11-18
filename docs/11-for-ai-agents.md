@@ -7,24 +7,24 @@ where things are and what to avoid.
 ## In one paragraph
 
 LCG2 is a minimal ISO C99 command-line program that plays a StimGen 2 stimulus
-on a data-acquisition board and records inputs. **Milestones M0, M1 and M2 are
-built**: command line, INI configuration, profiles, checks, dry run (`-n`), and the
-**StimGen link**: it reads StimGen text through `sg_api_*`, renders every trial, decodes
-the samples, maps channels to outputs, checks units and every sample, and builds the
-volts (with rest samples) for a backend. It does not play, simulate or record yet. The board
-(NI USB-6343) is not supported by NI-DAQmx on Linux, so the **rig host is undecided**
-and hardware work is on hold. The next job is M3 (trial engine and loopback simulator).
+on a data-acquisition board and records inputs. **Milestones M0 to M3 are built**: command
+line, INI configuration, profiles, the StimGen link (`stim.c`), and the **trial engine** with a
+built-in **loopback simulator**: a run plays the trials on `device = sim` with StimGen's timing rules,
+outputs held at rest between trials and on every way out, safe Ctrl-C, and the inputs streamed to a
+sink in physical units. **No data file is written yet** (the sink only counts): that is M4. The board
+(NI USB-6343) is not supported by NI-DAQmx on Linux, so the **rig host is undecided** and hardware work
+is on hold. The next job is M4 (HDF5 recording and the run folder).
 
 ## State at a glance
 
 | Item | State |
 |:--|:--|
 | Repository | <https://github.com/mgiugliano/lcg2> |
-| Built | M0 skeleton, Makefile, StimGen pin; M1 config, profiles, CLI, `-n`; M2 StimGen link |
-| Next | **M3** trial engine and loopback simulator, then M3b NEURON, M4 HDF5, M5 test suite |
+| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback |
+| Next | **M4** HDF5 + run folder (a `Sink`), then M3b NEURON, M5 test suite |
 | On hold | S1 hardware spike, M6 DAQmx, M7 rig bring-up (host undecided) |
 | StimGen pin | StimGen2 `379434b` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
-| Tests | `make test`: unit tests, M1 table, M2 suite, doc commands; all must pass |
+| Tests | `make test`: unit tests, M1 table, M2 suite, M3 suite, doc commands; all must pass |
 | Build | `make` must print no warnings |
 
 ## Files to read, in order
@@ -94,23 +94,31 @@ and hardware work is on hold. The next job is M3 (trial engine and loopback simu
   section name is refused because it is still longer than 47 characters.
 - **StimGen** has stale `.o` files in `src/`; never link them. Building `sg` is done into `build/`.
 - **`sg_api_*` results are valid only until the next call**: copy them out at once.
+- **The simulator's state is observable**: `-v` prints where it left the outputs; `build/enginetest`
+  prints its event log (`O R P R ... R C`) and the final value of every output. Use them.
+- **Virtual time is the default** for `device = sim`; tests that need real time use `-R` with loose bounds
+  and never depend on sleeping for correctness. Real-signal tests block on the Enter prompt (`start on
+  trigger` with no `trigger` key) instead of racing a clock.
+- **A list of arrays handed to a callback must end with NULL** (an uninitialised tail crashed only the
+  optimised build once).
 - **A stimulus rendered without a seed draws a new one each time**: `stim_open` fixes the seed; do
   not call `sg_api_render_trial` yourself with an empty seed.
 - The shell hook may block `rm`; `make clean` works.
 
-## What M3 must do (summary of `SPEC.md`)
+## What M4 must do (summary of `SPEC.md` sections 3 and 7)
 
-1. A `backend` interface that takes a `Drive` (volts per analog output, 0/1 per digital
-   line, `n` samples plus `STIM_REST_PAD` rest samples) and returns the inputs.
-2. The built-in loopback (`device = sim`): each output feeds the input of the same
-   number, plus noise.
-3. The trial engine: render each trial again when it is played (the seeds are fixed in
-   `Stim`), schedule with `period` or `gap` (the strings are in `Stim.timing` and
-   `Stim.start`), hold rest values between trials, record the real start time and delay.
-4. Abort: the handler only sets a flag; outputs to rest; exit 2.
-5. `platform.c` for everything OS-specific (signals, the clock, `mkdir`).
-6. Tests: the simulator plays a protocol with correct `period` and `gap` timing and
-   recorded delays; Ctrl-C leaves the outputs at rest.
+1. A `Sink` (`engine.h`: `begin`, `block`, `end`) that writes one HDF5 file per run, one group per
+   trial, extendable datasets filled as the blocks arrive, flushed after every trial; physical units; rate,
+   gains, calibration, seed, start time (`TrialRecord.start_utc`, to the millisecond, simulated in virtual
+   time), delay, latency, over-range counts and an `incomplete` flag as attributes.
+2. The hidden folder `.[PREFIX_]YYYYMMDD_HHMMSS/` with the resolved configuration (`config_dump`), the command
+   line, the stimulus text and the files it used (`Trial.file_path`, `file_sha`), the expanded trials, a log,
+   and the SHA-256 of the data file and of every input. Own SHA-256 (no dependency).
+3. `mkdir` and friends go into `platform.c`. On the Mac HDF5 is the parallel build: use `mpicc`; use only
+   calls available since HDF5 1.10; the choice of compiler is made here, not before.
+4. An aborted trial is kept and marked `incomplete`; a killed run keeps its completed trials.
+5. Tests: `h5py` reads a file back (`pip install h5py`); a killed run keeps its completed trials; the hidden
+   folder holds everything of SPEC 3.2.
 
 ## Useful commands
 

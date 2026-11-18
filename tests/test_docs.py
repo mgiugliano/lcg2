@@ -10,11 +10,12 @@
 # starts with "$ ./lcg2 ". Optionally "   # exit N" at its end says which exit
 # status is expected (default 0). The command is run from the top folder.
 #
-# Only commands that can run today are run: it must contain -n or -h (a dry
-# run; playing is not built yet) or carry an explicit "# exit N", and every
-# file it names with -c, and its stimulus file, must exist. A command that
-# names a file that does not exist (such as rig.ini in an illustration) is an
-# illustration and is skipped, not failed. The number skipped is printed.
+# Every command is run (a run plays on the simulator, in virtual time, so it takes
+# no time), provided that every file it names with -c, and its stimulus file,
+# exist. A command that names a file that does not exist (such as rig.ini in an
+# illustration) is an illustration and is skipped, not failed. Commands that wait
+# for the user (start on trigger) do not appear in the documents. The number
+# skipped is printed.
 import glob
 import os
 import re
@@ -41,8 +42,8 @@ for page in pages:
             continue
         expected = int(m.group(2)) if m.group(2) else 0
         argv = shlex.split(m.group(1))
-        if "-n" not in argv and "-h" not in argv and not m.group(2):
-            skipped += 1            # needs a real run: not built yet
+        if "-R" in argv:
+            skipped += 1            # real time: the test must not sleep
             continue
         # every file named must exist: otherwise it is an illustration
         files = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-c"]
@@ -54,7 +55,7 @@ for page in pages:
             skipped += 1
             continue
         p = subprocess.run([LCG2] + argv, cwd=ROOT, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, universal_newlines=True, timeout=20)
+                           stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, universal_newlines=True, timeout=60)
         run += 1
         if p.returncode != expected:
             failed += 1
@@ -62,6 +63,6 @@ for page in pages:
             print("      exit status %d, expected %d" % (p.returncode, expected))
             print("      stderr: %s" % p.stderr.strip()[:200])
 
-print("documents: %d commands run, %d illustrations or real runs skipped, %d failed"
+print("documents: %d commands run, %d illustrations skipped, %d failed"
       % (run, skipped, failed))
 sys.exit(1 if failed else 0)

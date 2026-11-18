@@ -50,7 +50,9 @@
  *   2  the backend is opened and every output is set to its rest value;
  *   3  for every trial: prepare it, wait for its time (and its trigger), play it,
  *      set the outputs at rest again;
- *   4  whatever happens, the last thing before closing is: outputs to rest.
+ *   4  whatever happens, the last thing before closing is: outputs to rest.  If
+ *      that fails, the run says so loudly (even with -q) and ends with status 2:
+ *      on a real board that is the most important failure there is.
  * "Prepare" re-renders the trial, compares its digest with the one remembered by
  * the check pass, checks every sample again, and builds its drive.  A buffer that
  * is not exactly the one that was checked is never played.
@@ -94,7 +96,10 @@ typedef struct {
 /* What the sink is told when a trial is over (or was stopped). */
 typedef struct {
     int64_t start_ns, end_ns, delay_ns;   /* delay = start - scheduled (>= 0)           */
-    char    start_utc[32];                /* wall clock at the start, UTC               */
+    char    start_utc[40];                /* when it started, UTC, to the millisecond: the
+                                             run's wall-clock start plus start_ns, so that
+                                             trials a few ms apart differ.  Simulated, like
+                                             start_ns, when the clock is virtual.        */
     int64_t latency_ns;                   /* the backend's start latency (part of delay)*/
     int64_t recorded;                     /* samples per input actually delivered       */
     int     incomplete;                   /* stopped before the end                     */
@@ -121,6 +126,8 @@ typedef struct {
     int64_t elapsed_ns;
     int64_t overrange_total;
     int     is_virtual;
+    int     rest_failed;         /* the last attempt to put the outputs at rest FAILED:
+                                    they may not be at rest (the exit status is 2)    */
 } EngineReport;
 
 /* Everything the engine needs. */

@@ -393,7 +393,13 @@ static int do_run(const Options *o, const Config *c, Err *err)
         if (engine_parse_timing(stim.timing, stim.start, &timing, err) < 0) return 1;
     }
 
-    be = sim_backend_new(NULL);
+    {
+        SimOpts so;
+        memset(&so, 0, sizeof so);
+        so.noise_sd = 0.002; so.seed = 1;
+        so.report_state = o->verbose;              /* -v: say where the outputs were left */
+        be = sim_backend_new(&so);
+    }
     if (!be) { err_set(err, "out of memory"); return 1; }
     platform_install_abort_handlers();
     if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
@@ -408,6 +414,7 @@ static int do_run(const Options *o, const Config *c, Err *err)
     status = engine_run(&job, &rep, err);
     sim_backend_free(be);
 
+    if (rep.rest_failed) return 2;                 /* the outputs may not be at rest */
     if (status == ENGINE_OK) {
         if (!o->quiet)
             fprintf(stderr, "lcg2: done: %d trial(s) in %.3f s%s, largest delay %.3f s; no data file was "

@@ -61,8 +61,11 @@ int64_t platform_monotonic_ns(void);
  * requested.  Returns 1 if it slept the whole time, 0 if it was cut short. */
 int platform_sleep_ns(int64_t ns);
 
-/* The wall clock in UTC, "2026-11-18T14:21:00Z", for the record of a trial. */
-void platform_utc_now(char buf[32]);
+/* The wall clock: nanoseconds since 1970-01-01 UTC. */
+int64_t platform_wall_ns(void);
+
+/* A wall-clock time in nanoseconds as "2026-11-18T14:21:00.123Z" (milliseconds). */
+void platform_format_utc(int64_t wall_ns, char buf[40]);
 
 /* Wait for a line on standard input.  Returns 1 for Enter (a line), 0 for end
  * of input (nobody can ever press it), -1 if interrupted by an abort request. */

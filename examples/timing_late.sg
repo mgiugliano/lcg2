@@ -1,0 +1,9 @@
+sg 2 protocol
+# A trial (2 s) longer than its period (1 s): each next trial starts as soon as the
+# previous one ends, and the delay is recorded.
+repeat 4
+period 1s
+
+stimulus {
+    channel P1 unit=pA { 2s dc(100) }
+}

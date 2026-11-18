@@ -193,8 +193,8 @@ trial, before anything is played (built, M2: see [07](07-stimgen.md)).
 
 ![Timeline](figures/fig-timeline.svg)
 
-Timing is either `period` (trials start at fixed intervals, start to start) or
-`gap` (a pause after each trial ends, end to start). A trial can also say
+Timing is either `period` (each trial starts a fixed time after the *start* of the previous
+one) or `gap` (a pause after each trial *ends*). These are StimGen's own definitions. A trial can also say
 `start on trigger` and wait for an edge on the PFI line named by `trigger` in
 `[rig]`, or for Enter if no `trigger` is configured.
 
@@ -206,7 +206,16 @@ the USB transfer needs time to start), it starts as soon as it can, and the real
 start time and the delay are recorded and printed. `gap 0s` cannot be exact on
 real hardware for the same reason.
 
-**Designed (M3).**
+**Built (M3).**
+
+Two details of the timing, both measured by the tests. First, the **delay** of a trial is
+when it really started minus when it was meant to start, and it includes the time the
+backend needs to start (the *start latency*; zero in the simulator unless a test adds some,
+a real number on USB hardware). Second, because `period` counts from the previous trial's
+*actual* start, a start latency also moves the next trial: with 15 ms of latency every trial
+slips another 15 ms, so a thousand trials end 15 s late. This follows StimGen's wording; a
+fixed grid (each trial meant to start at `period` times its index) would not drift, and
+`SPEC.md` 4c lists it as a choice the owner may change.
 
 ## 8. Recording and the run archive
 
@@ -244,7 +253,7 @@ small interface: write outputs, read inputs. Three backends are planned:
 
 | `device =` | Backend | Status |
 |:--|:--|:--|
-| `sim` | built-in loopback: each output feeds the input of the same number, plus noise | Designed (M3) |
+| `sim` | built-in loopback: each output feeds the input of the same number, plus noise | **Built** (M3) |
 | `neuron` | the NEURON simulator, with virtual cells and synapses | Designed (M3b) |
 | a board name (`Dev1`) | NI-DAQmx on the USB-6343 | Designed, on hold |
 
@@ -263,8 +272,18 @@ Output goes to the right place: the plan of `-n` and the help of `-h` go to
 **stdout**; progress and errors go to **stderr**; data goes to files. Every
 error message starts with `lcg2: `.
 
-**Abort (designed, M3).** The Ctrl-C handler only sets a flag. The loops that
-read and wait check it, then the program stops, drives every output to its rest
-value, closes the data file with the completed trials (the running one marked
-`incomplete`), logs it, and exits with status 2. The handler never does the work
-itself, because it can interrupt the program at any point.
+**Abort (built, M3).** Ctrl-C (SIGINT) and `kill` (SIGTERM) only set a flag. The code that
+waits, and the loop that reads the inputs, check it; the program then stops, drives every
+output to its rest value, and exits with status 2. The handler never does the work itself,
+because a signal can interrupt the program at any instant. A second Ctrl-C does not skip
+the rest step. When the HDF5 file exists (M4) the completed trials are closed in it and the
+running one is marked `incomplete`.
+
+**What cannot be caught.** `kill -9` (SIGKILL), a power cut or a crash end the program at
+once; nothing can run after them. A real board then keeps the last values it was given. That
+is why every buffer ends with rest samples, and why the bring-up tests (M7) check the outputs
+on a scope for Ctrl-C, `kill` and an unplugged USB cable.
+
+**If putting the outputs at rest fails** (it cannot with the simulator; on a board it can),
+LCG2 says so loudly, even with `-q`: `ERROR: the outputs may NOT be at rest`, and the exit
+status is 2 even if the run itself had succeeded.

@@ -1,8 +1,8 @@
 # 10. Architecture (for developers)
 
-This page describes the code as it is today (M0 to M2) and the places where the
-designed parts will plug in. About 3,000 lines of C, including the licence
-headers and the test drivers, and about a thousand lines of Python for the tests.
+This page describes the code as it is today (M0 to M3) and the places where the
+designed parts will plug in. About 5,000 lines of C, including the licence
+headers and the test drivers, and about 1,500 lines of Python for the tests.
 
 ## Repository layout
 
@@ -20,14 +20,22 @@ lcg2/
     json.h json.c     a small JSON reader (for the .sgb header and the trial list)
     stimgen_api.h     the sg_api_* functions LCG2 may call (sg.h is never included)
     stim.h stim.c     StimGen text -> trials -> unit-checked, limit-checked volts
-    main.c            glue: read, check, print the plan
+    platform.h .c     the ONLY file that knows the operating system: abort flag and
+                      signals, clocks (real and virtual), sleeping, Enter wait (POSIX only)
+    backend.h         the provisional interface of a backend (open, set_rest,
+                      wait_trigger, play, close; inputs streamed in blocks)
+    backend_sim.h .c  the loopback simulator (device = sim)
+    engine.h engine.c the trial engine: timing, rest on every way out, streaming
+    main.c            glue: read, check, then print the plan (-n) or run
   vendor/inih/        inih r58 (BSD), unmodified, with VENDOR.md
   tests/
     run_tests.py      the M1 acceptance test (a table of cases)
     test_stim.py      the M2 acceptance test (StimGen integration)
     test_docs.py      runs the commands shown in the documents
-    unit.c            unit tests of the limit check and the rate fraction
+    test_engine.py    the M3 acceptance test (engine, simulator, signals)
+    unit.c            unit tests: limit check, rates, error trap, time arithmetic, timing parser
     stimdump.c        driver: dumps what stim.c decoded, to compare with sg
+    enginetest.c      driver: runs the engine on the virtual clock and prints everything
     jsontool.c        driver: round-trips JSON through json.c
   examples/           rig configurations and StimGen stimuli
   docs/               this manual, figures/ (SVG), outputs/ (real program output)
@@ -124,11 +132,58 @@ Read [07](07-stimgen.md) for the whole story; in short:
   `out_check_value()` as the idle values of the configuration.
 - `sg_fail` rewrites StimGen's messages so that they name the user's file and speak of `-r`.
 
+### `platform.c`
+
+The only file that may call an operating-system function. POSIX only; any other system stops the
+build with an `#error` (the machine that will have the board is not decided). It provides:
+
+- **the abort flag**: SIGINT and SIGTERM are caught with `sigaction`, with no `SA_RESTART` (so a
+  signal interrupts a sleep or a read) and no `SA_RESETHAND` (so a second Ctrl-C does not restore the
+  default and kill the program before the outputs are at rest). The handler only sets a
+  `volatile sig_atomic_t`; everyone else polls it;
+- **clocks**: a monotonic one, and a `Clock` the engine uses, which is either *real* (waiting waits) or
+  *virtual* (waiting just moves a counter: a thousand trials 5 s apart run in an instant, and every
+  time is exact; tests depend on this);
+- `platform_sleep_ns` (sleeps in slices of at most 20 ms and checks the flag), `platform_wait_enter`
+  (tells Enter, end of input and an interrupt apart), and the wall clock to the millisecond.
+
+### `backend.h`, `backend_sim.c`
+
+A backend has five operations. `play()` runs one trial: it writes the outputs of a `Drive`, measures the
+inputs, and hands them over **in blocks of about 0.1 s** through a callback, as volts. The streaming is
+deliberate: M4's recording grows on disk as it arrives, the completed part of an aborted trial is kept,
+and a long record-only run never holds its whole record in memory. The interface is **provisional**: the
+hardware spike may change it.
+
+The loopback wires `aoN` to `aiN`, adds deterministic noise, clamps and counts samples beyond an
+input's range, can be given a start latency, and keeps a log of what it did (`O` open, `R` rest, `T`
+trigger, `P` play, `p` a play stopped early, `C` close) and of where every output was last driven.
+
+### `engine.c`
+
+`engine_run()` follows the order of things written at the top of `engine.h`:
+
+1. the first trial is prepared (re-rendered, digest compared, re-checked, drive built) **before any
+   output is touched**;
+2. the backend is opened and every output is set to rest;
+3. for each trial: prepare, wait for its time and its trigger, play, set rest;
+4. whatever happens, **the last thing before closing is: outputs to rest**; if that fails, the message is
+   loud (even with `-q`) and the exit status is 2.
+
+Ownership is deliberately plain: trial *i* lives in `slot[i & 1]`, so while it is handled trial *i-1* is
+still alive in the other slot, and `rest_drive` always points at the drive of the most recent trial that
+was prepared (its rest samples are the state the outputs rest at). The sink is told about every trial that
+began, finished or not. The list of input arrays given to the sink ends with a `NULL`.
+
+The timing rules are StimGen's: `period T` counts from the previous trial's actual start, `gap T` from its
+end, and `start on trigger` waits for a trigger *per trial* after that. All time arithmetic goes through
+`units_muldiv` (a 128-bit intermediate), because `n * 10^12` overflows 64 bits for an hour at 500 kS/s.
+
 ### `main.c`
 
-`main()` reads, checks (the configuration, then the whole stimulus, trial by trial), and
-either prints the plan (`-n`) or stops with "not implemented yet". The `Table`,
-`Config`, `Stim` and report are `static` (the table is a few hundred kilobytes).
+`main()` reads, checks (the configuration, then the whole stimulus, trial by trial), and either prints
+the plan (`-n`) or runs the trials on the loopback simulator (`do_run`), refusing `neuron` and board
+devices with a message for now. The `Table`, `Config`, `Stim` and report are `static`.
 
 ## How the build works
 
@@ -152,7 +207,8 @@ reference the tests compare with. Nothing is ever written inside the StimGen fol
 |:--|:--|
 | `tests/run_tests.py` | about 180 cases: good and bad command lines and configurations, each with the exit status and a fragment of the message; the round trip of the resolved configuration; the pin check (a faithful copy accepted, a changed or missing file refused; skipped with a note if your StimGen differs from the pin); all examples load |
 | `tests/test_stim.py` | about 180 checks of the StimGen integration: samples equal `sg render` bit for bit (plain stimulus, protocols, plain waveform, `-e`, other units); trial order and seeds equal `sg expand`; two renders without a seed are identical; every combination of the rate rules; messages are translated; mapping, unit and clipping refusals; the volts and rest samples; the JSON reader against an independent parser, a table of hostile inputs and 500 mutations |
-| `build/unit` (`tests/unit.c`) | checks of `out_check_value` (exact boundaries, NaN and infinity, a negative calibration scale), of the exact rate fraction, and of the **error trap**: stimuli that StimGen rejects in seven different ways, alternating with good ones in one process, must each come back as an error and never end the program |
+| `tests/test_engine.py` | about 85 checks of the engine and the loopback: exact timing for period, gap, a trial longer than its period, start latency and a trigger; one hour of simulated time; the order of operations and the final state of every output on **every way out** (normal, abort before, between and during a trial, a refused trial, a failing sink, a failing rest); UTC times to the millisecond; the loopback's numbers, noise, range clamping and calibration; the program's streams and exit statuses; and **real SIGINT and SIGTERM sent to the real program** (blocked on the Enter prompt, so nothing races), with the state of the outputs read back |
+| `build/unit` (`tests/unit.c`) | checks of `out_check_value` (exact boundaries, NaN and infinity, a negative calibration scale), of the exact rate fraction, of the 128-bit time arithmetic and the timing parser, and of the **error trap**: stimuli that StimGen rejects in seven different ways, alternating with good ones in one process, must each come back as an error and never end the program |
 | `tests/test_docs.py` | every `$ ./lcg2 ...` line in `docs/` and `README.md` runs with the expected exit status |
 
 Other checks used during development (not in `make test`): the whole suite run against
@@ -182,9 +238,9 @@ and a comparison of the rate and duration parsers with StimGen's own.
 
 | Milestone | Where it goes |
 |:--|:--|
-| M3 engine, loopback | a `backend` interface (a struct of function pointers: write outputs, read inputs, set rest, close) that takes a `Drive`; `engine.c` for scheduling (the timing strings of a protocol are already in `Stim`), rest values and abort; `platform.c` for signals, the clock and `mkdir` |
+| M4 recording | a `Sink` (`begin`, `block`, `end`) that writes the HDF5 file as blocks arrive; the main program's counting sink is replaced by it; `platform.c` gains `mkdir` for the hidden folder; the start time of a trial is already `TrialRecord.start_utc` (to the millisecond) |
 | M3b NEURON | `backend_neuron.c` (child process and pipes, POSIX only) and `lcg2_neuron.py` |
-| M4 recording | `record.c` (HDF5 serial API, calls available since 1.10) and `archive.c` for the hidden folder, the log and the SHA-256; on the Mac HDF5 is the parallel build, so use `mpicc` |
+| (M4 continued) | `archive.c` for the hidden folder, the log and the SHA-256; on the Mac HDF5 is the parallel build, so use `mpicc` |
 | M6 DAQmx | `backend_daqmx.c`; the Mac build uses a stub `NIDAQmx.h` |
 
 ## Style

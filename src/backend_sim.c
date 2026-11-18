@@ -96,7 +96,9 @@ static int sim_set_rest(Backend *be, const Config *cfg, const Drive *d, Err *err
 {
     Sim *s = (Sim *)be->impl;
     int k;
-    (void)err;
+    s->st.nrest_calls++;
+    if (s->o.fail_rest_from > 0 && s->st.nrest_calls >= s->o.fail_rest_from)
+        return err_set(err, "the simulator was told to fail setting the rest values (call %d)", s->st.nrest_calls);
     for (k = 0; k < d->nao; k++) {
         int line = cfg->out[d->ao[k].out].index;
         s->st.ao_state[line] = d->ao_rest[k];
@@ -196,6 +198,13 @@ static void sim_close(Backend *be)
     Sim *s = (Sim *)be->impl;
     event(s, 'C');
     s->st.closed = 1;
+    if (s->o.report_state) {
+        int k;
+        fprintf(stderr, "lcg2: simulator: outputs left at");
+        for (k = 0; k < 4; k++) if (s->st.ao_known[k]) fprintf(stderr, " ao%d=%.6g V", k, s->st.ao_state[k]);
+        for (k = 0; k < 8; k++) if (s->st.dig_known[k]) fprintf(stderr, " port0/line%d=%d", k, s->st.dig_state[k]);
+        fprintf(stderr, "\n");
+    }
 }
 
 Backend *sim_backend_new(const SimOpts *opts)

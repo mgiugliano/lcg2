@@ -1,0 +1,8 @@
+sg 2 protocol
+# Four trials of 2 s, starting every 5 s (start to start).
+repeat 4
+period 5s
+
+stimulus {
+    channel P1 unit=pA { 2s dc(100) }
+}

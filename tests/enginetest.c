@@ -46,6 +46,7 @@
  *   --tamper K        remember a wrong digest for trial K (it must be refused)
  *   --fail-block K    make the sink fail on the first block of trial K
  *   --abort-now       request an abort before the run starts
+ *   --fail-rest K     the simulator fails its K-th and later set_rest calls
  *
  * Not part of lcg2; built by `make tools`.
  */
@@ -121,9 +122,10 @@ static int p_end(void *u, const TrialInfo *ti, const TrialRecord *r, Err *e)
     Probe *p = (Probe *)u;
     int k;
     (void)e;
-    printf("T %d %s %lld %lld %lld %lld %lld %lld %d\n", ti->index, ti->name,
+    printf("T %d %s %lld %lld %lld %lld %lld %lld %d %s\n", ti->index, ti->name,
            (long long)ti->scheduled_ns, (long long)r->start_ns, (long long)r->end_ns,
-           (long long)r->delay_ns, (long long)r->latency_ns, (long long)r->recorded, r->incomplete);
+           (long long)r->delay_ns, (long long)r->latency_ns, (long long)r->recorded, r->incomplete,
+           r->start_utc);
     for (k = 0; k < ti->nin; k++)
         printf("I %d %s %lld %.17g %.17g %.17g %lld %llx\n", ti->index, ti->ai[k].name,
                (long long)p->n[k], p->n[k] ? p->mn[k] : 0.0, p->n[k] ? p->mx[k] : 0.0,
@@ -135,7 +137,7 @@ static int p_end(void *u, const TrialInfo *ti, const TrialRecord *r, Err *e)
 
 int main(int argc, char **argv)
 {
-    SimOpts so = { 0, 0.002, 1 };
+    SimOpts so = { 0, 0.002, 1, 0, 0 };
     Probe probe;
     Options opt;
     Err err;
@@ -163,6 +165,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[dd], "--fail-block") && dd + 1 < argc) probe.fail_k = atoi(argv[++dd]);
         else if (!strcmp(argv[dd], "--real")) real = 1;
         else if (!strcmp(argv[dd], "--abort-now")) abort_now = 1;
+        else if (!strcmp(argv[dd], "--fail-rest") && dd + 1 < argc) so.fail_rest_from = atoi(argv[++dd]);
         else { fprintf(stderr, "enginetest: unknown driver option %s\n", argv[dd]); return 2; }
     }
     if (dd >= argc) { fprintf(stderr, "usage: enginetest [options] -- [lcg2 options]\n"); return 2; }
@@ -211,8 +214,9 @@ int main(int argc, char **argv)
         for (k = 0; k < 8; k++) if (st->dig_known[k]) printf(" line%d=%d", k, st->dig_state[k]);
         printf("\n");
     }
-    printf("STATUS %d touched=%d started=%d completed=%d max_delay=%lld elapsed=%lld\n", status, rep.touched,
-           rep.started, rep.completed, (long long)rep.max_delay_ns, (long long)rep.elapsed_ns);
+    printf("STATUS %d touched=%d started=%d completed=%d max_delay=%lld elapsed=%lld rest_failed=%d\n", status,
+           rep.touched, rep.started, rep.completed, (long long)rep.max_delay_ns, (long long)rep.elapsed_ns,
+           rep.rest_failed);
     if (status != ENGINE_OK && err.msg[0]) printf("ERROR %s\n", err.msg);
     sim_backend_free(be);
     return 0;

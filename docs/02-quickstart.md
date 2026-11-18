@@ -3,12 +3,10 @@
 This page takes about five minutes. You will build the program and run a *dry
 run*: LCG2 reads a configuration, checks it, and prints what it would do.
 
-> **Status.** Playing and recording are not written yet (milestones M3 and M4).
-> What works today is everything up to and including the plan printed by `-n`:
-> the configuration is read and checked, and the stimulus is read **through
-> StimGen**, rendered, mapped to the outputs and checked, trial by trial. A run
-> without `-n` does all those checks, and then stops with a message and exit
-> status 1.
+> **Status.** What works today: the configuration is read and checked, the stimulus is
+> read **through StimGen**, rendered, mapped to the outputs and checked, and the trials
+> are **played on the built-in loopback simulator** (`-n` stops after the checks and prints
+> the plan). **No data file is written yet**: recording is milestone M4.
 
 ## What you need
 
@@ -60,6 +58,7 @@ $ make test
 unit tests: ... checks, 0 failed
 ... tests passed
 stimulus tests: ... checks, 0 failed
+engine tests: ... checks, 0 failed
 documents: ... commands run, ... skipped, 0 failed
 ```
 
@@ -121,6 +120,26 @@ $ ./lcg2 -c examples/single_pipette.ini -n -v examples/step.sg
 `-v` with `-n` also prints the *resolved configuration*: the file after the
 profile and the `-m` flag have been applied. This is the text the run archive
 will store as "the configuration used".
+
+## Run it on the simulator
+
+Without `-n`, LCG2 plays the trials:
+
+```console
+$ ./lcg2 -c examples/single_pipette.ini examples/step.sg
+lcg2: running 1 trial(s) on the loopback simulator, in simulated time (-R follows the clock)
+lcg2: trial 1/1  stimulus  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+```
+
+- **simulated time**: nothing waits. A two-second trial takes an instant, and every time
+  in the report is exact. Add `-R` to follow the real clock instead.
+- **the loopback**: each output is wired to the input of the same number (`ao0` to
+  `ai0`), plus a little noise.
+- **no data file**: the inputs are measured and handed to a sink, which only counts them,
+  until milestone M4 writes the HDF5 file.
+- **Ctrl-C** stops the run safely: the outputs go to their rest values first (see
+  [Concepts](04-concepts.md)).
 
 ## What is next
 

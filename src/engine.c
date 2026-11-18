@@ -203,7 +203,7 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
     Prep slot[2];
     const Drive *rest_drive;
     int count = job->st ? job->st->n : 1;
-    int64_t prev_start = 0, prev_end = 0, t0;
+    int64_t prev_start = 0, prev_end = 0, t0, wall0;
     int status = ENGINE_OK, i;
     Err fail = { {0} };
 
@@ -222,6 +222,7 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
 
     /* 3. The trials. */
     t0 = clock_now(clk);
+    wall0 = platform_wall_ns();               /* the run's start on the wall clock */
     for (i = 0; i < count; i++) {
         Prep *p = &slot[i & 1];
         TrialInfo ti;
@@ -284,12 +285,12 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
         }
         rep->started++;
         call_ns = clock_now(clk);
-        platform_utc_now(rec.start_utc);
         r = be->play(be, clk, cfg, &p->drive, p->rate_p, p->rate_q, block_samples,
                      relay_block, &relay, &pr, &fail);
         for (k = 0; k < relay.nact; k++) free(relay.phys[k]);
 
         rec.start_ns = call_ns - t0 + pr.latency_ns;
+        platform_format_utc(wall0 + rec.start_ns, rec.start_utc);
         rec.end_ns = clock_now(clk) - t0;
         rec.delay_ns = rec.start_ns - ti.scheduled_ns;
         if (rec.delay_ns < 0) rec.delay_ns = 0;
@@ -326,8 +327,13 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
     /* 4. Whatever happened: the outputs to rest, then close. */
 finish:
     if (rep->touched) {
-        Err ignore;
-        be->set_rest(be, cfg, rest_drive, &ignore);
+        Err last;
+        if (be->set_rest(be, cfg, rest_drive, &last) < 0) {
+            /* Never silent, even with -q: the outputs may be where the trial left them. */
+            fprintf(stderr, "lcg2: ERROR: the outputs may NOT be at rest: %s\n", last.msg);
+            rep->rest_failed = 1;
+            if (status == ENGINE_OK) { status = ENGINE_FAILED; err_set(err, "the outputs could not be put at rest: %s", last.msg); }
+        }
         be->close(be);
     }
     rep->elapsed_ns = clock_now(clk);

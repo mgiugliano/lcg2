@@ -1,8 +1,8 @@
-# LCG2 specification (working draft 4)
+# LCG2 specification (working draft 5)
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
-2026-11-18, and its findings are applied here. Milestones M0, M1 and M2 are built
-and tested (section 12); section 4a records the choices made while building them. Items under "Decided" are the
+2026-11-18, and its findings are applied here. Milestones M0 to M3 are built
+and tested (section 12); sections 4a to 4c record the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
 
@@ -251,6 +251,51 @@ a key outside a section, a line over 999 characters: all errors, with
   sign; malformed exponents (`1e`, `1ee3`, which StimGen's `parse_rate`
   accepts as 1) are refused; a zero duration is refused.
 
+### 4c. The trial engine and the loopback as built (M3)
+
+- **Timing** is StimGen's: `period T` = each trial starts T after the *start* of the previous one (if the
+  trial is longer, the next starts when it ends, and the delay is recorded); `gap T` = T after the *end*;
+  `start on trigger` = *each* trial waits for a trigger after its period or gap. The default is `gap 0s`,
+  `start immediately`; a plain stimulus is one trial. The timing strings are read as StimGen writes them
+  (the user's own token: `period 2.5s`, `gap 500ms`, a bare number is seconds, zero is allowed).
+- **Delay** = actual start minus scheduled start, including the backend's start latency. All times are
+  nanoseconds on the engine's clock; the arithmetic (samples to time, duration to samples) uses a 128-bit
+  intermediate, so an hour at 500 kS/s does not overflow. The start time of a trial is also given as UTC to
+  the millisecond (the run's wall-clock start plus the exact offset; simulated when the clock is virtual).
+- **Order of operations**: prepare trial 0 (re-render; compare the digest of the check pass; re-check every
+  sample; build the drive) before touching any output; open; outputs to rest; for each trial prepare, wait for
+  its time and trigger, play, rest; at the end, **outputs to rest, then close, on every path**. A trial whose
+  samples differ from the checked ones is refused.
+- **A failed final rest is never silent**: `ERROR: the outputs may NOT be at rest` is printed even with `-q`,
+  and the exit status is 2 even if the run had succeeded.
+- **Abort**: SIGINT and SIGTERM set a flag (`sigaction`, no `SA_RESTART`, handler kept so a second Ctrl-C does
+  not skip the rest step); waits, the Enter prompt and the block loop poll it. Exit status 2. SIGKILL cannot be
+  caught (see section 6 and the M7 scope tests). The end of input at the Enter prompt aborts the run.
+- **Exit status**: 0 success; 1 an error before any output was touched; 2 aborted, failed after, or the outputs
+  could not be put at rest.
+- **Streaming**: `play()` hands the inputs over in blocks of about 0.1 s, already in physical units for the
+  sink (gain and calibration applied); an aborted trial is reported to the sink as incomplete with the
+  samples it had. `-t DURATION` is one all-rest trial (rate from `-r` or `[rig]`; rounded to the nearest sample).
+- **The loopback**: `aoN` to `aiN`; Gaussian noise (2 mV), deterministic per (seed, trial, input); an input
+  has its range: voltages beyond it are clamped and counted, with a warning; an injectable start latency.
+- **Time**: virtual by default for `device = sim` (nothing waits; exact times; the progress line says
+  "simulated time"); `-R` follows the clock.
+- **Devices**: `neuron` and board names are refused for now with a message that names the milestone.
+- **Before M4 a run writes no data file**; the sink only counts samples. The summary says so.
+
+**Choices made while building M3, which the owner may veto** (none was blocking):
+1. **`-R`** is the flag for real time, and **virtual time is the default** for the simulator.
+2. A configured **PFI trigger fires at once** in the simulator (it has no PFI line); without a `trigger` key it
+   prompts for Enter.
+3. **`period` counts from the previous trial's actual start**, as StimGen's text says. The consequence, measured:
+   with a start latency L every trial slips another L (15 ms of latency: a thousand trials end 15 s late). A
+   fixed grid (each trial meant to start at `period` times its index) would not drift but behaves differently
+   for a trial longer than its period; if the owner prefers it, it is a few lines in `engine.c`.
+4. The **loopback noise seed is fixed** (it does not follow `-s`).
+5. **End of input at the Enter prompt aborts** the run.
+6. The **delay includes the start latency**.
+7. **No data file is written until M4.**
+
 ## 5. Hardware facts used (USB-6343 datasheet)
 
 - 4 AO, 16 bit, +/-10 V, simultaneous update; output FIFO 8,191 samples shared
@@ -388,7 +433,7 @@ How `device = neuron` works:
 | M0 **done** | Skeleton: layout, Makefile (`-std=c99 -pedantic -Wall -Wextra -ffp-contract=off`, `mpicc` on the Mac), pin check, inih, MIT headers | builds with no warnings; fails if the StimGen sources differ from the pin |
 | M1 **done** | Config and CLI: INI, profiles, flags, validation, `-n` | a table of good and bad configs gives the expected messages and exit codes |
 | M2 **done** | StimGen integration: kind, expand, render trial, JSON trial list, channel map, unit check, volts, clip check of all trials, rest samples | samples equal `sg render` on this machine; trial order and seeds equal `sg expand`; a clipping trial is refused before anything plays |
-| M3 | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
+| M3 **done** | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
 | M3b | NEURON backend (section 11): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
 | M4 | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |
 | M5 | Multi-patch and loopback tests on the simulator (part of M3/M4, kept as a suite) | `make test` passes with no hardware |

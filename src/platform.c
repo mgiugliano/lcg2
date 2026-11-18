@@ -99,12 +99,22 @@ int platform_sleep_ns(int64_t ns)
     }
 }
 
-void platform_utc_now(char buf[32])
+int64_t platform_wall_ns(void)
 {
-    time_t now = time(NULL);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+void platform_format_utc(int64_t wall_ns, char buf[40])
+{
+    time_t secs = (time_t)(wall_ns / 1000000000);
+    int ms = (int)((wall_ns % 1000000000) / 1000000);
     struct tm tmv;
-    gmtime_r(&now, &tmv);
-    strftime(buf, 32, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+    char date[24];
+    gmtime_r(&secs, &tmv);
+    strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", &tmv);
+    snprintf(buf, 40, "%s.%03dZ", date, ms);
 }
 
 int platform_wait_enter(void)

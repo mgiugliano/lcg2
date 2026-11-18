@@ -18,6 +18,7 @@ used by the tutorials in [`../docs/03-tutorials.md`](../docs/03-tutorials.md), a
 | `steps_protocol.sg` | a protocol: a family of current steps, repeated and shuffled |
 | `frozen_noise.sg` | a protocol: the same noise realisation 50 times |
 | `ramp.sg` | a plain waveform, to be sent with `-T NAME` |
+| `timing_period.sg`, `timing_gap.sg`, `timing_late.sg` | four 2 s trials with `period 5s`, `gap 2s`, and `period 1s` (a trial longer than its period): Tutorial 11 |
 
 Try them with the dry run, for example:
 

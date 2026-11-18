@@ -1,26 +1,37 @@
 # 8. Simulators
 
-> **Status: designed, not built (milestones M3 and M3b).** This page is the
-> design, taken from `SPEC.md` section 11, so that the work can be picked up
-> or reviewed. Only the configuration keys of the `[rig]` section are read today;
-> the `[cell]` and `[synapse]` sections are counted, not validated.
+> **Status.** The built-in loopback (backend 1) is **built** (milestone M3). The NEURON backend
+> (backend 2) is **designed, not built** (M3b): that part of this page is the design, taken from
+> `SPEC.md` section 11, so that the work can be picked up or reviewed. Only the configuration keys
+> of the `[rig]` section are read today; the `[cell]` and `[synapse]` sections are counted, not validated.
 
 LCG2 is built **simulator first**: everything above the hardware is written and
 tested with simulators before the board is touched. A *backend* replaces the
 board. The command line, the stimuli, the configuration and the outputs are the
-same for every backend.
+same for every backend. The interface (`src/backend.h`) is small and **provisional**: five
+operations (`open`, `set_rest`, `wait_trigger`, `play`, `close`), which the hardware spike may refine.
 
-## Backend 1: the built-in loopback (`device = sim`)
+## Backend 1: the built-in loopback (`device = sim`) — built
 
-Each output feeds the input of the same number, with a little noise. It has no
-dependencies and is used by the test suite. Example: output `ao0` is played, and
-the input `ai0` records the same signal plus noise. Unconnected inputs record
-noise only.
+Every analog output `aoN` is wired to the analog input `aiN`, with a little noise. An input with no
+output of its number hears only noise (or the rest value of an idle output of that number). It has
+no dependencies and is used by the test suite; it tests the whole path (checks, scheduling, rest
+values, abort, the streaming of the inputs) but nothing about a cell, so a recording from it is a
+copy of the command, not a neuron.
 
-It tests the whole path (checks, scheduling, rest values, recording, archive) but
-nothing about a cell.
+What it does, as a board would, where that matters to a test of LCG2:
 
-## Backend 2: NEURON (`device = neuron`)
+| Behaviour | Detail |
+|:--|:--|
+| **Wiring** | `ao0` to `ai0`, `ao1` to `ai1`, and so on; the volts are the volts that `stim_drive` made, so the unit conversions, the calibration and the gains are all exercised |
+| **Noise** | Gaussian, 2 mV by default, on every input; **deterministic**: a function of (seed, trial, input), so the same command gives the same recording, and each trial has its own noise |
+| **Input range** | an input has a range (0.2, 1, 5 or 10 V). A voltage beyond it is **clamped** and **counted**, per input and per trial, and the run prints a warning: the simulator never passes an out-of-range voltage on as if it were fine |
+| **Start latency** | starting a trial can take time (zero by default; the tests inject some), which shows up as the *delay* of the trial |
+| **Time** | virtual by default: nothing waits; every time is exact. `-R` makes it follow the clock |
+| **Trigger** | with a `trigger = PFIn` in `[rig]` the edge is *simulated at once* (the simulator has no PFI line); without one, the run prompts and waits for Enter |
+| **Memory of what it did** | the order of operations (open, rest, play, ...) and the last value of every output: the tests use it to prove that every way out ends at rest; with `-v` it prints where it left the outputs |
+
+## Backend 2: NEURON (`device = neuron`) — designed, not built
 
 The goal: **pretend** you have real cells on a real amplifier, and never write
 NEURON code. The program receives its data from a NEURON simulation instead of

@@ -1,0 +1,8 @@
+sg 2 protocol
+# Four trials of 2 s, with a pause of 2 s after each one ends (end to start).
+repeat 4
+gap 2s
+
+stimulus {
+    channel P1 unit=pA { 2s dc(100) }
+}

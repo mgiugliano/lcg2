@@ -28,10 +28,11 @@ Exactly one of these three must be given: a stimulus file, `-e`, or `-t`.
 | `-r` | `RATE` | sampling rate: `20kHz`, `10000` (Hz), `2.5Hz`, `1e4`, `0.5MHz`. A rate written in the stimulus wins; a different `-r` is an error. |
 | `-s` | `SEED` | seed of the random generators: a non-negative integer. Without it one is drawn and recorded. |
 | `-T` | `NAME` | send a *plain waveform* (a signal that names no channel) to the pipette `NAME`, which must be an analog `[out NAME]` in use. Required for a plain waveform; an error with a stimulus. |
-| `-t` | `DURATION` | record only, for that long: `30s`, `500ms`, `250us`, `2min`. The unit is required; the value must be above 0. |
+| `-t` | `DURATION` | record only, for that long: `30s`, `500ms`, `250us`, `2min`. The unit is required; the value must be above 0. It is one trial with every output at rest, so it needs a rate (`-r` or `[rig]`). |
 | `-e` | `TEXT` | the stimulus text given inline instead of in a file. A full stimulus needs newlines (`-e $'sg 2 stimulus\nchannel P1 unit=pA { 1s dc(0) }'` in bash); a plain waveform may be one line, `;` separating segments, as in StimGen's `sg`. |
 | `-p` | `PREFIX` | prefix of the output file names. Letters, digits, `_`, `-`, `.`; must not start with `.` or contain a slash. |
 | `-n` | | dry run: check everything, print the plan on stdout, play nothing. |
+| `-R` | | real time: the simulator waits as a real board would. The default is virtual time (as fast as possible, with exact simulated times). |
 | `-q` | | quieter (progress will be reduced). Cannot be used with `-v`. |
 | `-v` | | more verbose. With `-n` it also prints the resolved configuration. |
 | `-h` | | print the help. |
@@ -81,7 +82,7 @@ in `sg` it is `--text`, while in LCG2 it is the record-only duration.
 |:--|:--|
 | 0 | success |
 | 1 | an error before the run |
-| 2 | aborted or failed during the run (designed, M3) |
+| 2 | aborted (Ctrl-C, kill), or failed after the outputs were touched, or the outputs could not be put at rest |
 
 ## Examples
 
@@ -94,5 +95,7 @@ $ ./lcg2 -c rig.ini -t 30s                       # record 30 s, outputs at rest
 $ ./lcg2 -c rig.ini -n -v stimulus.sg            # check, print the plan and the resolved config
 ```
 
-Today a run without `-n` reads the stimulus and does **all** the checks, then stops
-with "not implemented yet" (playing and recording are milestones M3 and M4).
+A run without `-n` reads the stimulus and does **all** the checks, and then plays the
+trials on the loopback simulator (`device = sim`). `device = neuron` is refused until
+milestone M3b, and a board name until the hardware backend (M6). No data file is written
+before M4.

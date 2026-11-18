@@ -142,11 +142,27 @@ Idle values of skipped outputs are not checked.
 | `profile '...' not found: ... defines no [profile NAME] section` | the file has no profiles |
 | `[profile p] out.P9.line: there is no section [out P9] to override` | a profile may only modify existing sections |
 
-## Not an error, but a stop
+## While running (milestone M3)
+
+| Message (shortened) | What it means | What to do |
+|:--|:--|:--|
+| `device = neuron is not implemented yet (milestone M3b); use device = sim` | the NEURON backend is not built | use `device = sim` for now |
+| `device 'Dev1': there is no hardware backend yet (milestone M6, ...)` | no board backend is built | use `device = sim` |
+| `no sampling rate: give -r RATE or write rate = in [rig]` | `-t` needs a rate and none is given | add one |
+| `-t: the duration is shorter than one sample, or too long` | `-t` rounds to whole samples | give a longer duration, or a higher rate |
+| `trial 0003 is not the one that was checked (its samples changed between the check and the run): not played` | the re-rendered trial differs from the one that passed the check | this should never happen; report it with the stimulus |
+| `trial 0003 failed its check again before playing: ...` | the same, a limit | as above |
+| `unknown timing '...': expected 'period T' or 'gap T'` / `the protocol's start rule is '...'` | a timing statement StimGen wrote that LCG2 does not know | report it: StimGen and LCG2 disagree |
+| `start on trigger: no trigger line is configured; press Enter to start` | not an error: the prompt | press Enter, or add `trigger = PFIn` |
+| `aborted after N of M trial(s): outputs at rest` | Ctrl-C or kill; exit status 2 | the outputs were put at rest |
+| `warning: trial 0003: input P1: N samples beyond the range of 1 V (clamped)` | an input would exceed its range | raise the `range` of that `[in]`, or lower the stimulus |
+| `ERROR: the outputs may NOT be at rest: ...` | putting the outputs at rest failed (shown even with `-q`); exit status 2 | check the outputs by hand before touching anything |
+
+## Not an error, but a note
 
 ```text
-lcg2: playing and recording are not implemented yet in this build (milestones M0 to M2: the stimulus was read and checked); use -n to see the plan
+lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
 ```
 
-Exit status 1. It appears only after every check has passed. Use `-n` to see the plan; playing
-and recording are milestones M3 and M4.
+The end of a successful run. Exit status 0. The inputs were measured and counted, and nothing is
+saved until milestone M4.

@@ -5,13 +5,11 @@ Each tutorial is short and can be followed in order. Lines that start with
 `# exit` is the exit status the test expects. Run everything from the top
 folder of the project.
 
-> **Status.** All the tutorials below use the dry run `-n`, because playing and
-> recording are not written yet (M3 and M4). But the dry run is not shallow
-> any more: since milestone M2 it **reads your stimulus through StimGen**, renders
-> every trial, finds the output of every channel, checks the units and checks
-> every sample against the limits, exactly as a real run will do before it
-> plays anything. Tutorial 9 shows, clearly marked as a preview, what a full run
-> is designed to look like.
+> **Status.** Most tutorials use the dry run `-n`, which since milestone M2 **reads your stimulus
+> through StimGen**, renders every trial, checks the units and every sample, exactly as a
+> real run does before it plays anything. Since M3 a run **plays the trials on the built-in
+> loopback simulator** (Tutorials 9 and 11). What is still designed, not built, is the data
+> file (M4): a run writes none yet.
 
 Contents: [1 One pipette](#tutorial-1-one-pipette-in-current-clamp) ·
 [2 Voltage clamp](#tutorial-2-the-same-rig-in-voltage-clamp) ·
@@ -21,8 +19,9 @@ Contents: [1 One pipette](#tutorial-1-one-pipette-in-current-clamp) ·
 [6 Safety limits](#tutorial-6-safety-limits-and-the-rest-value) ·
 [7 Record only](#tutorial-7-record-only) ·
 [8 Your own rig](#tutorial-8-writing-the-configuration-of-your-own-rig) ·
-[9 Preview of a run](#tutorial-9-preview-what-a-full-run-will-look-like) ·
-[10 Check a stimulus with sg](#tutorial-10-checking-a-stimulus-with-sg)
+[9 Run a protocol](#tutorial-9-a-protocol-checked-and-run) ·
+[10 Check a stimulus with sg](#tutorial-10-checking-a-stimulus-with-sg) ·
+[11 Timing](#tutorial-11-when-trials-start-period-gap-and-late-trials)
 
 ---
 
@@ -388,9 +387,9 @@ Every mistake gives a message with the file and the line; see
 
 ---
 
-## Tutorial 9: a protocol, and a preview of the run
+## Tutorial 9: a protocol, checked and run
 
-**Goal:** check a whole protocol today, and see what a run will add.
+**Goal:** check a whole protocol, then run it on the simulator.
 
 [`examples/steps_protocol.sg`](../examples/steps_protocol.sg) is a protocol: a family of current steps
 from -300 to +300 pA in steps of 50 pA, three repetitions, in shuffled blocks, one trial
@@ -412,37 +411,63 @@ $ ./lcg2 -c examples/lcg2.ini -n -P single examples/steps_protocol.sg
 StimGen expanded the protocol into 39 trials and LCG2 rendered and checked **each one**;
 the largest command anywhere is 0.75 V (300 pA). The order of the trials and the seed
 of each are fixed by the protocol seed: give `-s 7` and you get the same ones every time.
-Add `-v` to list the trials as they are checked.
 
-> **Designed, not built (M3, M4).** What follows is a *mock-up* of the intended
-> behaviour of a real run, not output from the program.
+Now run it, with a seed so that the order is the same every time:
 
 ```console
-$ ./lcg2 -c examples/lcg2.ini -m cc -P single -s 7 examples/steps_protocol.sg
-lcg2: 39 trials, rate 20 kHz, seed 7
-lcg2: all trials checked: no sample clips
-lcg2: trial 1/39  0000  start 0.000 s  delay 0.000 s
-lcg2: trial 2/39  0001  start 5.000 s  delay 0.000 s
-...
-lcg2: wrote 20261118_142100.h5 and .20261118_142100/
+$ ./lcg2 -c examples/lcg2.ini -P single -s 7 examples/steps_protocol.sg
 ```
-
-and the folder holds the data file and a hidden folder with the record of
-the run (the file names inside are provisional):
 
 ```text
-20261118_142100.h5
-.20261118_142100/
-    config.ini        the resolved configuration, as in -n -v
-    command.txt       the exact command line
-    stimulus.sg       the stimulus text as given, and files it used
-    trials.json       expanded trials, with seeds
-    log.txt           trial starts, delays, warnings, SHA-256 of everything
+lcg2: running 39 trial(s) on the loopback simulator, in simulated time (-R follows the clock)
+lcg2: trial 1/39  0000  amp=-200pA  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 2/39  0001  amp=100pA  start 5.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 3/39  0002  amp=300pA  start 10.000 s  delay 0.000 s  (simulated time)
+...
+lcg2: trial 39/39  0038  amp=50pA  start 190.000 s  delay 0.000 s  (simulated time)
+lcg2: done: 39 trial(s) in 192.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
 ```
 
-Press Ctrl-C at any point and LCG2 will stop, drive every output to its rest
-value, close the data file with the completed trials (the running one marked
-`incomplete`), and exit with status 2.
+Each line is one trial: its number, its name, the values of the protocol's variables
+(`amp=-200pA`), when it started, and its delay. The protocol says `period 5s`, so the trials
+start 5 s apart, and the whole run is 192 simulated seconds (190 s to the last start, plus its
+2 s). It took a moment of real time, because simulated time does not wait. `-R` makes it
+follow the clock.
+
+> **Designed, not built (M4).** The data file. A run will write `YYYYMMDD_HHMMSS.h5` and a hidden
+> folder `.YYYYMMDD_HHMMSS/` (the file names inside are provisional):
+>
+> ```text
+> .20261118_142100/
+>     config.ini        the resolved configuration, as in -n -v
+>     command.txt       the exact command line
+>     stimulus.sg       the stimulus text as given, and files it used
+>     trials.json       expanded trials, with seeds
+>     log.txt           trial starts, delays, warnings, SHA-256 of everything
+> ```
+
+**Ctrl-C** stops a run safely. LCG2 stops, drives every output to its rest value, and exits with
+status 2:
+
+```text
+lcg2: trial 12/39  0011  ...
+^C
+lcg2: aborted after 12 of 39 trial(s): outputs at rest
+```
+
+(A mock-up of the keystroke; the behaviour is tested with real signals.) `kill -9` cannot be caught by
+any program; see [Concepts](04-concepts.md).
+
+**Record only.** `-t DURATION` is one trial with every output at rest:
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -t 30s
+```
+
+```text
+lcg2: trial 1/1  record  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: done: 1 trial(s) in 30.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+```
 
 ---
 
@@ -463,3 +488,68 @@ $ build/sg expand -s 7 examples/steps_protocol.sg /tmp/steps    # every trial as
 
 All the `.sg` files in `examples/` pass `sg check`. See [07 StimGen and
 LCG2](07-stimgen.md) for exactly how LCG2 uses the same engine.
+
+---
+
+## Tutorial 11: when trials start (period, gap and late trials)
+
+**Goal:** see StimGen's three timing rules in the simulator, with exact times.
+
+Three small protocols, each of four trials of 2 s:
+[`timing_period.sg`](../examples/timing_period.sg) (`period 5s`),
+[`timing_gap.sg`](../examples/timing_gap.sg) (`gap 2s`) and
+[`timing_late.sg`](../examples/timing_late.sg) (`period 1s`, shorter than the trial).
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -r 20kHz examples/timing_period.sg
+```
+
+```text
+lcg2: trial 1/4  0000  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 2/4  0001  start 5.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 3/4  0002  start 10.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 4/4  0003  start 15.000 s  delay 0.000 s  (simulated time)
+```
+
+`period 5s`: each trial starts 5 s after the **start** of the previous one.
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -r 20kHz examples/timing_gap.sg
+```
+
+```text
+lcg2: trial 1/4  0000  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 2/4  0001  start 4.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 3/4  0002  start 8.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 4/4  0003  start 12.000 s  delay 0.000 s  (simulated time)
+```
+
+`gap 2s`: each trial starts 2 s after the **end** of the previous one (2 s of trial, then 2 s of
+pause: 4 s apart).
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -r 20kHz examples/timing_late.sg
+```
+
+```text
+lcg2: trial 1/4  0000  start 0.000 s  delay 0.000 s  (simulated time)
+lcg2: trial 2/4  0001  start 2.000 s  delay 1.000 s  (simulated time)
+lcg2: trial 3/4  0002  start 4.000 s  delay 1.000 s  (simulated time)
+lcg2: trial 4/4  0003  start 6.000 s  delay 1.000 s  (simulated time)
+```
+
+`period 1s` with trials of 2 s: the next trial was meant to start 1 s after the previous start,
+but the previous trial is still running, so it starts as soon as it ends. The **delay** (1 s) is
+recorded and printed. Without a timing statement a protocol is `gap 0s`: trials back to back.
+
+The three forms `period T`, `gap T` and the optional `start on trigger` are all StimGen's. With
+`start on trigger` **each** trial waits for a trigger after its period or gap has passed. The
+simulator has no PFI line, so with `trigger = PFI0` in `[rig]` the edge is simulated at once;
+without a `trigger` key it prompts and waits for Enter:
+
+```text
+lcg2: start on trigger: no trigger line is configured; press Enter to start
+```
+
+If the input ends instead (nobody can press Enter), the trial is not started and the run
+stops at rest with status 2.

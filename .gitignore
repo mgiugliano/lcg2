@@ -1,3 +1,8 @@
 build/
 /lcg2
 .DS_Store
+# data files and run folders (made by every real run, wherever it is run)
+*.h5
+.[0-9]*_[0-9]*/
+.*_[0-9]*_[0-9]*/
+*.tmp

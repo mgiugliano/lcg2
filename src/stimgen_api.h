@@ -56,6 +56,11 @@ int sg_api_render_trial(const char *text, const char *rate, const char *seed,
                         const char *unit, const char *trial_json,
                         const char *protocol_text);
 
+/* The canonical form of a stimulus or plain waveform, in sg_api_text(): the same
+ * stimulus written in one fixed way, with every `use` expanded, so that it is
+ * self-contained.  (A protocol is not accepted.) */
+int sg_api_canon(const char *text, const char *unit);
+
 /* "waveform", "stimulus", "protocol" or "index", in sg_api_text(). */
 int sg_api_kind(const char *text);
 

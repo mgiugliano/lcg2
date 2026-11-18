@@ -60,7 +60,7 @@
 /* Error messages                                                      */
 /* ------------------------------------------------------------------ */
 
-typedef struct { char msg[320]; } Err;
+typedef struct { char msg[512]; } Err;
 
 /* Format a message into e (printf style) and return -1, so that a failing
  * function can simply say "return err_set(e, ...);". */

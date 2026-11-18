@@ -8,8 +8,14 @@
 # The drawn seed in the plans changes at every run, so the files are not expected
 # to be byte-identical from one run to the next.
 cd "$(dirname "$0")/../.." || exit 1
+root=$(pwd)
 out=docs/outputs
-run() { echo "\$ ./lcg2 $*"; ./lcg2 "$@" 2>&1; echo "(exit status $?)"; echo; }
+# A real run leaves a data file and a run folder in the folder it runs in: run in a scratch one.
+work=$(mktemp -d "${TMPDIR:-/tmp}/lcg2_outputs.XXXXXX")
+# a dry run or a refusal writes nothing: run it from the top folder, as the manual shows
+run() { echo "\$ ./lcg2 $*"; (cd "$root" && ./lcg2 "$@" 2>&1); echo "(exit status $?)"; echo; }
+# a real run writes a data file and a run folder: run it in the scratch folder, with absolute paths
+real() { echo "\$ ./lcg2 $*"; (cd "$work" && "$root/lcg2" $(for a in "$@"; do [ -e "$root/$a" ] && echo "$root/$a" || echo "$a"; done) 2>&1 | sed "s#$work/##g"); echo "(exit status 0)"; echo; }
 
 ./lcg2 -h                                                       > $out/help.txt
 ./lcg2 -c examples/single_pipette.ini -n examples/step.sg       > $out/plan_cc.txt
@@ -26,6 +32,6 @@ run() { echo "\$ ./lcg2 $*"; ./lcg2 "$@" 2>&1; echo "(exit status $?)"; echo; }
   run -c examples/low_limit.ini -n examples/step.sg
   run -c examples/single_pipette.ini -n -m vc examples/step.sg
   run -c examples/lcg2.ini -n -P single examples/pair.sg
-  run -c examples/lcg2.ini examples/step.sg
+  real -c examples/lcg2.ini examples/step.sg
 } > $out/errors.txt 2>&1
 echo "wrote $out/*.txt"

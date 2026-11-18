@@ -62,17 +62,49 @@ STIMGEN_SRC ?= ../StimGen/src
 # The library files of StimGen, in the order used to compute the fingerprint.
 SG_FILES = util help render rng parse prims eval protocol sgb sg_api
 
-SRC     = err units config cli json stim platform backend_sim engine main
-OBJ     = $(SRC:%=$(BUILD)/%.o) $(BUILD)/ini.o
+# Every object depends on every header: a change to a struct in one header must rebuild
+# everything that was compiled with the old layout (a stale object with a different struct
+# size is a silent memory bug, and an `Err` that grew once caused exactly that).
+HDRS = $(wildcard src/*.h)
+
+# The modules that need nothing but the C library, and those that need HDF5 (record.c
+# only: HDF5 is kept out of every test tool that does not write a data file).
+CORE    = err units config cli json stim platform backend_sim engine sha256 archive session
+APP     = record run main
+OBJ     = $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o $(APP:%=$(BUILD)/%.o)
+CORE_OBJ= $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o
 SG_OBJ  = $(SG_FILES:%=$(BUILD)/stimgen/%.o)
 
-all: check-pin lcg2 tools
+# HDF5 (serial API, calls since 1.10).  A wrapper compiler knows its include and
+# library paths: h5cc (on the PATH, e.g. libhdf5-dev on Linux), or the one inside a
+# Homebrew keg.  The Mac has the parallel build (hdf5-mpi), whose wrapper uses mpicc: the
+# serial calls work in it.  Override with H5CC=/path/to/h5cc.
+H5CC ?= $(shell command -v h5cc 2>/dev/null)
+ifeq ($(H5CC),)
+H5CC := $(firstword $(wildcard /opt/homebrew/opt/hdf5-mpi/bin/h5cc /opt/homebrew/opt/hdf5/bin/h5cc \
+                               /usr/local/opt/hdf5-mpi/bin/h5cc /usr/local/opt/hdf5/bin/h5cc))
+endif
+
+# The StimGen version this build is pinned to, recorded in every data file.
+PIN_COMMIT := $(shell sed -n 's/^commit *= *//p' STIMGEN_PIN)
+PIN_SHA    := $(shell sed -n 's/^sources_sha256 *= *//p' STIMGEN_PIN)
+PINFLAGS    = -DLCG2_STIMGEN_COMMIT='"$(PIN_COMMIT)"' -DLCG2_STIMGEN_SHA256='"$(PIN_SHA)"'
+
+all: check-pin check-hdf5 lcg2 tools
 
 lcg2: $(OBJ) $(SG_OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(SG_OBJ) $(LDLIBS)
+	$(H5CC) $(CFLAGS) -o $@ $(OBJ) $(SG_OBJ) $(LDLIBS)
 
-$(BUILD)/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h src/platform.h src/backend.h src/backend_sim.h src/engine.h | $(BUILD)
+$(BUILD)/%.o: src/%.c $(HDRS) | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -c -o $@ $<
+
+# record.c is the one file compiled with HDF5's wrapper, which adds its include path.
+$(BUILD)/record.o: src/record.c $(HDRS) | $(BUILD)
+	$(H5CC) $(CFLAGS) -Isrc -c -o $@ $<
+
+# run.c knows which StimGen it was built against.
+$(BUILD)/run.o: src/run.c $(HDRS) STIMGEN_PIN | $(BUILD)
+	$(CC) $(CFLAGS) $(PINFLAGS) -Isrc -c -o $@ $<
 
 $(BUILD)/ini.o: vendor/inih/ini.c vendor/inih/ini.h | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -c -o $@ $<
@@ -93,12 +125,13 @@ $(BUILD) $(BUILD)/stimgen:
 #   $(BUILD)/stimdump   dumps what LCG2's stimulus module holds, for comparison
 #   $(BUILD)/jsontool   round-trips JSON through json.c
 # ---------------------------------------------------------------------------
-tools: $(BUILD)/sg $(BUILD)/stimdump $(BUILD)/jsontool $(BUILD)/unit $(BUILD)/enginetest
+tools: $(BUILD)/sg $(BUILD)/stimdump $(BUILD)/jsontool $(BUILD)/unit $(BUILD)/enginetest \
+       $(BUILD)/runtest $(BUILD)/recordtest
 
 $(BUILD)/sg: $(BUILD)/stimgen/main.o $(SG_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(BUILD)/stimgen/main.o $(SG_OBJ) $(LDLIBS)
 
-LIBOBJ = $(filter-out $(BUILD)/main.o,$(OBJ))
+LIBOBJ = $(CORE_OBJ)
 
 $(BUILD)/stimdump: tests/stimdump.c $(LIBOBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/stimdump.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
@@ -109,6 +142,12 @@ $(BUILD)/unit: tests/unit.c $(LIBOBJ) $(SG_OBJ)
 $(BUILD)/enginetest: tests/enginetest.c $(LIBOBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/enginetest.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
 
+$(BUILD)/runtest: tests/runtest.c $(CORE_OBJ) $(BUILD)/record.o $(BUILD)/run.o $(SG_OBJ)
+	$(H5CC) $(CFLAGS) -Isrc -o $@ tests/runtest.c $(CORE_OBJ) $(BUILD)/record.o $(BUILD)/run.o $(SG_OBJ) $(LDLIBS)
+
+$(BUILD)/recordtest: tests/recordtest.c $(BUILD)/record.o $(CORE_OBJ) $(SG_OBJ)
+	$(H5CC) $(CFLAGS) -Isrc -o $@ tests/recordtest.c $(BUILD)/record.o $(CORE_OBJ) $(SG_OBJ) $(LDLIBS)
+
 $(BUILD)/jsontool: tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o $(LDLIBS)
 
@@ -117,6 +156,14 @@ $(BUILD)/jsontool: tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o
 # STIMGEN_PIN holds the SHA-256 of util.c help.c ... sg_api.c sg.h joined in
 # this order.  A different StimGen is noticed here, not silently used.
 # ---------------------------------------------------------------------------
+check-hdf5:
+	@if [ -z "$(H5CC)" ]; then \
+	  echo "check-hdf5: HDF5 was not found (no h5cc on the PATH or in a Homebrew keg)."; \
+	  echo "  Install it: brew install hdf5   or   sudo apt install libhdf5-dev"; \
+	  echo "  or tell make where its compiler wrapper is: make H5CC=/path/to/h5cc"; \
+	  exit 1; \
+	fi; echo "check-hdf5: using $(H5CC)"
+
 check-pin:
 	@want=`sed -n 's/^sources_sha256 *= *//p' STIMGEN_PIN`; \
 	files=""; for f in $(SG_FILES); do files="$$files $(STIMGEN_SRC)/$$f.c"; done; \
@@ -137,10 +184,12 @@ test: all
 	python3 tests/run_tests.py ./lcg2
 	LCG2_BUILD=$(BUILD) python3 tests/test_stim.py
 	LCG2_BUILD=$(BUILD) python3 tests/test_engine.py
+	LCG2_BUILD=$(BUILD) python3 tests/test_record.py
 	python3 tests/test_docs.py ./lcg2
+	python3 tests/check_clean.py
 
 clean:
 	@test -n "$(BUILD)" && test "$(BUILD)" != "/" && test "$(BUILD)" != "."
 	rm -rf $(BUILD) lcg2
 
-.PHONY: all tools stimgen-lib check-pin test clean
+.PHONY: all tools stimgen-lib check-pin check-hdf5 test clean

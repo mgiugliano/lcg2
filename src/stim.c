@@ -186,6 +186,8 @@ void stim_free(Stim *st)
     free(st->text);
     free(st->protocol_json);
     free(st->digest);
+    for (i = 0; i < st->nused; i++) { free(st->used_path[i]); free(st->used_sha[i]); }
+    free(st->used_path); free(st->used_sha);
     memset(st, 0, sizeof *st);
 }
 
@@ -843,6 +845,41 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
 int stim_drive_idle(const Config *cfg, int64_t n, Drive *d, Err *err)
 {
     return build_drive(NULL, NULL, cfg, n, d, err);
+}
+
+/* ------------------------------------------------------------------ */
+/* What the stimulus read, and its canonical form                      */
+/* ------------------------------------------------------------------ */
+
+int stim_note_files(Stim *st, const Trial *t)
+{
+    int k, j;
+    for (k = 0; k < t->nfiles; k++) {
+        char **np, **ns;
+        int known = 0;
+        for (j = 0; j < st->nused; j++)
+            if (strcmp(st->used_path[j], t->file_path[k]) == 0 && strcmp(st->used_sha[j], t->file_sha[k]) == 0)
+                known = 1;
+        if (known) continue;
+        np = (char **)realloc(st->used_path, ((size_t)st->nused + 1) * sizeof *np);
+        if (!np) return -1;
+        st->used_path = np;
+        ns = (char **)realloc(st->used_sha, ((size_t)st->nused + 1) * sizeof *ns);
+        if (!ns) return -1;
+        st->used_sha = ns;
+        st->used_path[st->nused] = xdup(t->file_path[k]);
+        st->used_sha[st->nused] = xdup(t->file_sha[k]);
+        if (!st->used_path[st->nused] || !st->used_sha[st->nused]) return -1;
+        st->nused++;
+    }
+    return 0;
+}
+
+char *stim_canonical(const Stim *st)
+{
+    if (st->is_protocol) return NULL;
+    if (sg_api_canon(st->text, st->waveform ? st->unit : "") != 0) return NULL;
+    return xdup(sg_api_text());
 }
 
 /* ------------------------------------------------------------------ */

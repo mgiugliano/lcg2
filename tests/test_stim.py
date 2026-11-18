@@ -424,7 +424,7 @@ def test_clipping(tmp):
     check("the refusal says how many samples clip", "clip in all" in r.stderr and "of 50000 samples" in r.stderr,
           r.stderr)
     # a run (without -n) refuses in the same way and never reaches "not implemented"
-    r = run([LCG2, "-c", c, "examples/pair.sg"])
+    r = run([LCG2, "-c", c, os.path.join(ROOT, "examples/pair.sg")], cwd=tmp)      # a real run: not in the repository
     check("a run without -n refuses a clipping stimulus too", r.returncode == 1 and "above the limit" in r.stderr
           and "not implemented" not in r.stderr, r.stderr)
     # the board range, with no limit: P2 has none
@@ -464,9 +464,9 @@ def test_clipping(tmp):
     r = lcg2(["-q", w])
     check("-q silences warnings", r.returncode == 0 and "warning" not in r.stderr, r.stderr)
     # a valid stimulus: a real run does all the checks first, then plays on the simulator (M3)
-    r = run([LCG2, "-c", CFG, "examples/step.sg"])
-    check("a run without -n plays, and says plainly that no data file is written until M4",
-          r.returncode == 0 and "no data file was written" in r.stderr and "milestone M4" in r.stderr, r.stderr)
+    r = run([LCG2, "-c", os.path.join(ROOT, CFG), os.path.join(ROOT, "examples/step.sg")], cwd=tmp)
+    check("a run without -n plays and writes the data file and the run folder (M4)",
+          r.returncode == 0 and "wrote " in r.stderr and ".h5 and ." in r.stderr, r.stderr)
     # record only reads no stimulus at all
     r = lcg2(["-t", "30s"])
     check("-t reads no stimulus", r.returncode == 0 and "stimulus   " not in r.stdout, r.stderr)

@@ -36,7 +36,10 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
+#include <unistd.h>
 #include "platform.h"
 
 /* ------------------------------------------------------------------ */
@@ -97,6 +100,25 @@ int platform_sleep_ns(int64_t ns)
         ts.tv_nsec = (long)(left % 1000000000);
         nanosleep(&ts, NULL);                /* returns early on a signal: we loop */
     }
+}
+
+void platform_local_stamp(char buf[20])
+{
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(buf, 20, "%Y%m%d_%H%M%S", &tmv);
+}
+
+int platform_mkdir(const char *path)
+{
+    if (mkdir(path, 0777) == 0) return 0;
+    return errno == EEXIST ? 1 : -1;
+}
+
+int platform_getcwd(char *buf, size_t n)
+{
+    return getcwd(buf, n) ? 0 : -1;
 }
 
 int64_t platform_wall_ns(void)

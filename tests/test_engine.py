@@ -36,6 +36,19 @@ failures = []
 count = 0
 S = 1_000_000_000                   # one second in ns
 
+# Every real run (one that is not a dry run) writes a data file and a run folder into its
+# working folder.  They must never land in the repository, so real runs happen in WORK, a
+# scratch folder, and paths that name files of the repository are made absolute.
+WORK = tempfile.mkdtemp(prefix="lcg2_engine_work_")
+
+
+def A(args):
+    out = []
+    for a in args:
+        out.append(os.path.join(ROOT, a) if (a and not a.startswith("-") and
+                                              os.path.exists(os.path.join(ROOT, a))) else a)
+    return out
+
 
 def check(name, ok, detail=""):
     global count
@@ -336,7 +349,7 @@ def test_loopback(tmp):
     a = o.inputs[(0, "P1")]
     check("an input is clamped at its range (1 V x 100 mV/V = 100 mV)", a["mx"] == 100.0, a)
     check("...and the clamped samples are counted: 1.5 s... the 1 s plateau, 20000 samples", a["over"] == 20000, a)
-    o = subprocess.run([LCG2, "-c", cfg, p], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    o = subprocess.run([LCG2, "-c", cfg, p], cwd=WORK, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     check("the program warns about it", o.returncode == 0 and "20000 samples beyond the range of 1 V" in o.stderr,
           o.stderr)
 
@@ -355,7 +368,7 @@ def test_loopback(tmp):
 # --------------------------------------------------------------------------
 def lcg2(args, **kw):
     kw.setdefault("timeout", 120)
-    return subprocess.run([LCG2] + args, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    return subprocess.run([LCG2] + A(args), cwd=WORK, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           universal_newlines=True, **kw)
 
 
@@ -363,8 +376,8 @@ def test_program(tmp):
     r = lcg2(["-c", CFG, "examples/step.sg"])
     check("a run succeeds with exit status 0", r.returncode == 0, r.stderr)
     check("a run writes nothing on stdout", r.stdout == "", r.stdout)
-    check("the summary says plainly that no data file is written yet",
-          "no data file was written" in r.stderr and "milestone M4" in r.stderr, r.stderr)
+    check("the summary says where the data and the run folder are",
+          re.search(r"wrote \d{8}_\d{6}(-\d+)?\.h5 and \.\d{8}_\d{6}(-\d+)?/", r.stderr) is not None, r.stderr)
     check("the progress line says that the time is simulated",
           "start 0.000 s  delay 0.000 s  (simulated time)" in r.stderr, r.stderr)
     r = lcg2(["-q", "-c", CFG, "examples/step.sg"])
@@ -425,7 +438,7 @@ def test_signals(tmp):
     waiting = protocol(tmp, "wait.sg", "period 5s\nstart on trigger", repeat=3)
 
     for name, sig in (("SIGINT", signal.SIGINT), ("SIGTERM", signal.SIGTERM)):
-        p = subprocess.Popen([LCG2, "-c", CFG, "-r", "20kHz", waiting], cwd=ROOT, stdin=subprocess.PIPE,
+        p = subprocess.Popen([LCG2] + A(["-c", CFG, "-r", "20kHz", waiting]), cwd=WORK, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         seen = read_until(p, "press Enter")
         check("%s test: the program is waiting for Enter" % name, "press Enter" in seen, seen)
@@ -446,7 +459,7 @@ def test_signals(tmp):
     # after a REAL signal, the outputs are really at rest: measured, not just announced.
     cfg = write(tmp, "restsig.ini", open(os.path.join(ROOT, CFG)).read().replace("[out P2]\nline = ao1", "[out P2]\nline = ao1\nrest = 100"))
     rp = protocol(tmp, "restsig.sg", "period 5s\nstart on trigger", repeat=3, rest=50)
-    p = subprocess.Popen([LCG2, "-v", "-c", cfg, "-r", "20kHz", rp], cwd=ROOT, stdin=subprocess.PIPE,
+    p = subprocess.Popen([LCG2, "-v", "-c", cfg, "-r", "20kHz", rp], cwd=WORK, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     seen = read_until(p, "press Enter")
     p.send_signal(signal.SIGINT)
@@ -461,7 +474,7 @@ def test_signals(tmp):
     p.stdin.close()
 
     # a second Ctrl-C must not skip the rest step
-    p = subprocess.Popen([LCG2, "-c", CFG, "-r", "20kHz", waiting], cwd=ROOT, stdin=subprocess.PIPE,
+    p = subprocess.Popen([LCG2] + A(["-c", CFG, "-r", "20kHz", waiting]), cwd=WORK, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     seen = read_until(p, "press Enter")
     p.send_signal(signal.SIGINT)
@@ -477,13 +490,13 @@ def test_signals(tmp):
     p.stdin.close()
 
     # the end of the input while waiting for Enter (nobody can ever press it)
-    p = subprocess.run([LCG2, "-c", CFG, "-r", "20kHz", waiting], cwd=ROOT, stdin=subprocess.DEVNULL,
+    p = subprocess.run([LCG2] + A(["-c", CFG, "-r", "20kHz", waiting]), cwd=WORK, stdin=subprocess.DEVNULL,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=30)
     check("the input ends while waiting for Enter: the trial is not started, exit status 2",
           p.returncode == 2 and "aborted after 0 of 3" in p.stderr, "rc=%s %s" % (p.returncode, p.stderr))
 
     # mid-trial, in real time (loose bounds)
-    p = subprocess.Popen([LCG2, "-R", "-c", CFG, "examples/step.sg"], cwd=ROOT, stdout=subprocess.PIPE,
+    p = subprocess.Popen([LCG2, "-R"] + A(["-c", CFG, "examples/step.sg"]), cwd=WORK, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
     seen = read_until(p, "in real time")
     time.sleep(0.6)
@@ -526,6 +539,7 @@ def main():
             fn(sub)
     finally:
         shutil.rmtree(tmp)
+        shutil.rmtree(WORK, ignore_errors=True)
     print("engine tests: %d checks, %d failed" % (count, len(failures)))
     return 1 if failures else 0
 

@@ -20,14 +20,26 @@ import glob
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LCG2 = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "lcg2"))
 
 pages = [os.path.join(ROOT, "README.md")] + sorted(glob.glob(os.path.join(ROOT, "docs", "*.md")))
 run = skipped = failed = 0
+
+# A real run leaves a data file and a run folder in its working folder, so the commands run
+# in a scratch folder (and paths of the repository are made absolute).
+WORK = tempfile.mkdtemp(prefix="lcg2_docs_work_")
+
+
+def absolute(argv):
+    return [os.path.join(ROOT, a) if (a and not a.startswith("-") and os.path.exists(os.path.join(ROOT, a)))
+            else a for a in argv]
+
 
 for page in pages:
     if not os.path.exists(page):
@@ -54,7 +66,7 @@ for page in pages:
         if any(not os.path.exists(os.path.join(ROOT, f)) for f in files):
             skipped += 1
             continue
-        p = subprocess.run([LCG2] + argv, cwd=ROOT, stdout=subprocess.PIPE,
+        p = subprocess.run([LCG2] + absolute(argv), cwd=WORK, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, universal_newlines=True, timeout=60)
         run += 1
         if p.returncode != expected:
@@ -63,6 +75,7 @@ for page in pages:
             print("      exit status %d, expected %d" % (p.returncode, expected))
             print("      stderr: %s" % p.stderr.strip()[:200])
 
+shutil.rmtree(WORK, ignore_errors=True)
 print("documents: %d commands run, %d illustrations skipped, %d failed"
       % (run, skipped, failed))
 sys.exit(1 if failed else 0)

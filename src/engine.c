@@ -70,6 +70,7 @@ typedef struct {
     int     has_trial;
     Drive   drive;
     int     has_drive;
+    Map     map[CFG_MAX_OUT];      /* which output carries each channel of the trial */
     char    name[64];
     char    variables[160];
     int64_t n, rate_p, rate_q;
@@ -105,7 +106,7 @@ static void variables_of(const char *info, char *out, size_t n)
 /* Render trial i again, and refuse anything that is not exactly what was checked. */
 static int prepare_stim(const EngineJob *job, int i, Prep *p, Err *err)
 {
-    Map map[CFG_MAX_OUT];
+    Map *map = p->map;
     Err inner;
     memset(p, 0, sizeof *p);
     if (stim_render(job->st, i, &p->trial, err) < 0) return -1;
@@ -252,6 +253,20 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
         ti.n = p->n; ti.rate_p = p->rate_p; ti.rate_q = p->rate_q;
         ti.scheduled_ns = scheduled - t0;
         ti.is_virtual = clk->is_virtual;
+        if (p->has_trial) {
+            const Trial *tr = &p->trial;
+            for (k = 0; k < tr->nch; k++) {
+                const OutCh *oc = &cfg->out[p->map[k].out];
+                ti.cmd[k].out_name = oc->name;
+                ti.cmd[k].unit = oc->digital ? "" : oc->unit[MODE_INDEX(cfg->mode)];
+                ti.cmd[k].out = p->map[k].out;
+                ti.cmd[k].digital = oc->digital;
+                ti.cmd[k].scale = p->map[k].scale;
+                ti.cmd[k].x = tr->ch[k].x;
+                ti.cmd[k].rest = tr->ch[k].rest * p->map[k].scale;
+            }
+            ti.ncmd = tr->nch;
+        }
         relay.nact = backend_active_inputs(cfg, relay.act);
         ti.nin = relay.nact;
         for (k = 0; k < relay.nact; k++) {

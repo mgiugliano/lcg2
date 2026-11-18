@@ -125,7 +125,16 @@ typedef struct {
     char      *protocol_json;    /* the expanded list, kept for the archive  */
     char      *digest;           /* n digests of 72 bytes, from the check pass */
     int        have_digest;
+    int        nused;            /* the files that file() read, in any trial     */
+    char     **used_path, **used_sha;
 } Stim;
+
+/* Add the files of a rendered trial to the stimulus's list (each path and digest once). */
+int  stim_note_files(Stim *st, const Trial *t);
+
+/* The canonical form of a stimulus or plain waveform (StimGen's own, with `use`
+ * expanded: self-contained), malloc'ed; NULL for a protocol or on error. */
+char *stim_canonical(const Stim *st);
 
 /* The check pass remembers the digest StimGen gives for the samples of each
  * trial; the engine compares it with the digest of the trial it re-renders, so

@@ -91,6 +91,18 @@ typedef struct {
     int         nin;             /* active inputs, in the order of the blocks           */
     struct { int in; const char *name; const char *unit; } ai[CFG_MAX_IN];
     int         is_virtual;      /* the times are simulated                             */
+    /* The command actually played on each output the stimulus names, in the unit of
+     * that output (value * scale).  Outputs it does not name are idle: not listed. */
+    int         ncmd;
+    struct {
+        const char   *out_name;  /* the [out NAME] that carries it                      */
+        const char   *unit;      /* the unit of that output in this mode ("" if digital)*/
+        int           out;       /* its index in the configuration                      */
+        int           digital;
+        double        scale;     /* stimulus unit to output unit                        */
+        const double *x;         /* the samples, in the STIMULUS's unit: multiply by scale */
+        double        rest;      /* the stimulus's rest value, in the output's unit     */
+    } cmd[CFG_MAX_OUT];
 } TrialInfo;
 
 /* What the sink is told when a trial is over (or was stopped). */

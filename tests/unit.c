@@ -37,6 +37,7 @@
 #include "cli.h"
 #include "config.h"
 #include "engine.h"
+#include "sha256.h"
 #include "stim.h"
 #include "units.h"
 
@@ -189,6 +190,75 @@ static void test_timing_parser(void)
     CHECK(engine_parse_timing("gap 0s", "ON TRIGGER", &t, &e) == -1);
 }
 
+/* n bytes of 'x' hash to the given digest, in one go and in odd-sized pieces. */
+static int sha_x(int n, const char *want)
+{
+    static char buf[256];
+    char hex[65];
+    LcgSha256 c;
+    unsigned char d[32];
+    int i, pos = 0, step = 1;
+    memset(buf, 'x', sizeof buf);
+    lcg_sha256_hex(buf, (size_t)n, hex);
+    if (strcmp(hex, want) != 0) return 0;
+    lcg_sha256_init(&c);
+    while (pos < n) {                                  /* pieces of 1, 2, 3, ... bytes */
+        int take = step < n - pos ? step : n - pos;
+        lcg_sha256_update(&c, buf + pos, (size_t)take);
+        pos += take; step++;
+    }
+    lcg_sha256_final(&c, d);
+    for (i = 0; i < 32; i++) sprintf(hex + 2 * i, "%02x", d[i]);
+    return strcmp(hex, want) == 0;
+}
+
+static void test_sha256(void)
+{
+    char hex[65];
+    static char million[1000000];
+    int64_t size = 0;
+    FILE *f;
+    Err e;
+
+    lcg_sha256_hex("", 0, hex);
+    CHECK(strcmp(hex, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == 0);
+    lcg_sha256_hex("abc", 3, hex);
+    CHECK(strcmp(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+    lcg_sha256_hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", 56, hex);   /* 448 bits */
+    CHECK(strcmp(hex, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1") == 0);
+    lcg_sha256_hex("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+               112, hex);                                                               /* 896 bits */
+    CHECK(strcmp(hex, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1") == 0);
+    memset(million, 'a', sizeof million);
+    lcg_sha256_hex(million, sizeof million, hex);                                           /* a million 'a' */
+    CHECK(strcmp(hex, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0") == 0);
+    /* lengths around the padding boundaries, against an independent implementation */
+    CHECK(sha_x(0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+    CHECK(sha_x(1, "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"));
+    CHECK(sha_x(54, "45f316e10b2c99abf374b22bda893cf3300d77263f1e272349ed414680522952"));
+    CHECK(sha_x(55, "d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072"));
+    CHECK(sha_x(56, "04c26261370ee7541549d16dee320c723e3fd14671e66a099afe0a377c16888e"));
+    CHECK(sha_x(57, "ae14a2563ccf969d99aca69ce6bb74981f734bbf9f655f73b8f06db68cab5217"));
+    CHECK(sha_x(63, "75220b47218278e656f2013bb8f0c455a25eaf01e86c64924e9d48d89776d6f2"));
+    CHECK(sha_x(64, "7ce100971f64e7001e8fe5a51973ecdfe1ced42befe7ee8d5fd6219506b5393c"));
+    CHECK(sha_x(65, "9537c5fdf120482f7d58d25e9ed583f52c02b4e304ea814db1633ad565aed7e9"));
+    CHECK(sha_x(119, "000b48d4edf0fa7bee3c6236ecd2785baa5db4eeb8bb54341b029e0d9fa5fb0c"));
+    CHECK(sha_x(120, "13f05a0b594787f5ecd315edc96141bd3243203d1b7d4f0836f37308b276ba98"));
+    CHECK(sha_x(121, "79072a47bfaa54e6057a9ee21e0dea64b9edbfd160c4ccadbb657e64b6d22ee4"));
+    CHECK(sha_x(128, "24da1b81d0b16df6428eee73c69fcb2a93c76bc6df706f0c6670fe6bfe800464"));
+
+    /* a file */
+    f = fopen("unit_sha256_probe.tmp", "wb");
+    if (f) {
+        fwrite("abc", 1, 3, f);
+        fclose(f);
+        CHECK(lcg_sha256_file("unit_sha256_probe.tmp", hex, &size, &e) == 0 && size == 3 &&
+              strcmp(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+        remove("unit_sha256_probe.tmp");
+    }
+    CHECK(lcg_sha256_file("/nonexistent/probe", hex, &size, &e) == -1 && strstr(e.msg, "cannot read") != NULL);
+}
+
 int main(void)
 {
     Err e;
@@ -251,6 +321,7 @@ int main(void)
     CHECK(stim_rate_fraction(INFINITY, &p, &q) == -1);
     CHECK(stim_rate_fraction(1.0 / 3.0, &p, &q) == -1);           /* not decimal */
 
+    test_sha256();
     test_error_trap();
     test_time_arithmetic();
     test_timing_parser();

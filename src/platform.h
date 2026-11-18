@@ -45,6 +45,7 @@
 #ifndef LCG2_PLATFORM_H
 #define LCG2_PLATFORM_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* Catch SIGINT and SIGTERM and turn them into the abort flag. */
@@ -63,6 +64,18 @@ int platform_sleep_ns(int64_t ns);
 
 /* The wall clock: nanoseconds since 1970-01-01 UTC. */
 int64_t platform_wall_ns(void);
+
+/* The current time in the machine's local time as "20261118_142100": the stem of
+ * the names of the files of a run. */
+void platform_local_stamp(char buf[20]);
+
+/* Make a folder.  Returns 0 if it was made, 1 if it already exists, -1 on any other
+ * error (errno then says why).  Making a folder is atomic, which is what makes it a
+ * safe way to claim a name: of two runs that start in the same second, one gets 1. */
+int platform_mkdir(const char *path);
+
+/* The current working folder; 0 on success. */
+int platform_getcwd(char *buf, size_t n);
 
 /* A wall-clock time in nanoseconds as "2026-11-18T14:21:00.123Z" (milliseconds). */
 void platform_format_utc(int64_t wall_ns, char buf[40]);

@@ -452,6 +452,15 @@ def run_case(tmp, case):
     return problems, p
 
 
+def _has_neuron(py):
+    """True if the Python at this path exists and can import neuron (a path from another machine does not exist)."""
+    try:
+        return subprocess.run([py, "-c", "import neuron"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
+
+
 def test_examples():
     """Every example configuration loads (the deliberately wrong one is refused)."""
     problems = []
@@ -466,8 +475,7 @@ def test_examples():
         if "device     = neuron" in text or "device = neuron" in text:
             # a dry run of a neuron rig builds its cells for real: it needs the sim_python of the file
             py = [l.split("=", 1)[1].split(";")[0].strip() for l in text.splitlines() if l.startswith("sim_python")]
-            if not py or subprocess.run([py[0], "-c", "import neuron"], stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL).returncode != 0:
+            if not py or not _has_neuron(py[0]):
                 print("      (skipped examples/%s: its sim_python has no NEURON; tests/test_neuron.py covers it)" % path)
                 continue
         if p.returncode != want:

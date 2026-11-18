@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 (2026-11-18)
+
+Found by running the whole `make test` on Linux (Ubuntu 22.04, gcc, HDF5 1.10.7, NEURON 9.0.2), which passes now:
+
+- **Fixed a crash on Linux:** `strdup` has no prototype under `-std=c99` on glibc, so its pointer was cut to 32 bits and every real run on
+  `device = neuron` segfaulted in `read_reply`. (The Mac's libc declares it anyway; the compiler had warned.)
+- **Fixed a crash at exit after a failed HDF5 write** (a full disk): HDF5 1.10 crashed in its own cleanup after everything had been
+  recorded, losing the exit status. After an HDF5 failure the program now leaves without running the exit handlers.
+- Tests: a model fixture with a Mac path, a tolerance that NEURON 9's settling drift exceeded, and the example configurations naming the
+  Mac's Python now skip instead of failing on another machine.
+
 ## 0.2.0 (2026-11-18)
 
 - **Added: the pipette and the amplifier** on the NEURON backend (`[cell]` keys `electrode_resistance`,
@@ -42,4 +53,4 @@ rig host to be decided.
 - **Test suites** (M5): about 830 checks, no hardware needed, also under AddressSanitizer and UBSan.
 - **Documentation** (M8): manual, tutorials, figures, references, a page for AI assistants.
 
-Not yet: the DAQmx backend (M6), bring-up on the rig (M7), Linux testing of the NEURON backend.
+Not yet: the DAQmx backend (M6), bring-up on the rig (M7).

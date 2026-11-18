@@ -375,7 +375,7 @@ without knowing NEURON):
 5. No recording noise, no electrode capacitance or bridge, one electrode per cell (a limit, listed in 14).
 6. A `-n` of a neuron rig starts NEURON (needs `sim_python` to work) rather than only counting cells.
 
-**Not tested:** Linux, other NEURON versions, `.asc` morphologies, a `.mod` compile on a clean cache on a machine other than the development Mac.
+**Tested on:** the development Mac (NEURON 8.2.6, Python 3.11, HDF5 2.0) and Ubuntu 22.04 (NEURON 9.0.2, Python 3.10, HDF5 1.10.7): the whole `make test`, including a `.mod` compile on a clean cache. **Not tested:** `.asc` morphologies, Windows.
 
 ### 4f. The pipette and the amplifier as built (version 0.2)
 

@@ -52,8 +52,11 @@ that the repository was left clean.
 
 * **The board.** There is no hardware backend. Everything about DAQmx (clock routing, start latency, the FIFO,
   what the outputs do on a crash) is the work of the hardware spike S1 and bring-up M7.
-* **Linux and other platforms**, other NEURON versions, `.asc` morphologies, `.mod` compilation on a clean cache
-  elsewhere. The HDF5 file was read back with HDF5 1.10.7 on Linux once, by hand.
+* **The sanitizer run on Linux**, macOS-only checks (the free-space refusal on a small disk image uses `hdiutil`: the
+  test says so and skips it elsewhere), Windows, and `.asc` morphologies.
+* **What was run on Linux** (Ubuntu 22.04, gcc, system HDF5 1.10.7, NEURON 9.0.2 from pip, Python 3.10): the whole `make test`
+  passes, apart from the checks that need matplotlib or the Mac Python of the example files, which skip with a note. It found
+  two real bugs (below). The Mac has HDF5 2.0, NEURON 8.2.6 and Python 3.11: the two sets of versions agree.
 * **Long runs.** The tests use seconds of signal; the disk-full and kill tests are the evidence about long ones.
 * **Real-time accuracy** beyond what `-R` shows in the engine tests (a few trials, a loaded machine can be late).
 

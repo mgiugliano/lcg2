@@ -1,9 +1,8 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
-> **Status: built (milestone M3b).** `device = neuron` works on the development Mac with NEURON 8.2.6
-> (Python 3.11). It is tested by `tests/test_neuron.py` (96 checks). It has **not** been run on Linux or
-> on any other NEURON version. The numerical result equals a plain NEURON script to 1e-9 mV (see
-> [How a trial is simulated](#how-a-trial-is-simulated)).
+> **Status: built (milestone M3b), with a pipette and amplifier model since 0.2.** `device = neuron` works with NEURON 8.2.6 (Mac,
+> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (96 checks). The numerical result
+> equals a plain NEURON script to 1e-9 mV (see [How a trial is simulated](#how-a-trial-is-simulated)).
 
 **The idea.** Everything you do on the real rig you do here, with the same command line, the same
 stimulus files and the same configuration, except that the cells are virtual. You never write NEURON

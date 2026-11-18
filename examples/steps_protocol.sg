@@ -1,0 +1,16 @@
+sg 2 protocol
+# A family of current steps, three repetitions, shuffled in blocks, one trial
+# every 5 s. The trial list is reproducible from the protocol seed.
+sweep    amp = from -300pA to 300pA step 50pA
+repeat   3
+order    shuffled-blocks
+period   5s
+
+stimulus {
+    channel P1 unit=pA {
+        500ms dc(0)
+        @step
+        1s    dc($amp)
+        500ms dc(0)
+    }
+}

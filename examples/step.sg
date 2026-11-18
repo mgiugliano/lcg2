@@ -1,0 +1,11 @@
+sg 2 stimulus
+# One current step on pipette P1. The names after "channel" must be [out]
+# sections of the configuration; the other outputs stay at rest.
+rate 20kHz
+
+channel P1 unit=pA {
+    500ms  dc(0)
+    @step
+    1s     dc(200)
+    500ms  dc(0)
+}

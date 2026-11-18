@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" width="940" height="330" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+<title id="t">Milestones</title><desc id="d">M0 and M1 are built. M2 to M5 are software-only milestones to do. S1, M6 and M7 need the hardware host to be decided; M8 is documentation.</desc>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111827"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="470" y="24" font-size="17" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">Milestones and where the project stands</text>
+<rect x="15" y="55" width="124" height="100" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="77" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M0</text>
+<text x="77" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">skeleton, Makefile,</text>
+<text x="77" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">StimGen pin, inih</text>
+<rect x="145" y="55" width="124" height="100" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="207" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M1</text>
+<text x="207" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">config, profiles,</text>
+<text x="207" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">CLI, -n dry run</text>
+<rect x="275" y="55" width="124" height="100" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="337" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M2</text>
+<text x="337" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">StimGen integration,</text>
+<text x="337" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">units, clip check</text>
+<rect x="405" y="55" width="124" height="100" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="467" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M3</text>
+<text x="467" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">trial engine,</text>
+<text x="467" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">loopback simulator</text>
+<rect x="535" y="55" width="124" height="100" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="597" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M3b</text>
+<text x="597" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">NEURON backend</text>
+<text x="597" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(virtual cells)</text>
+<rect x="665" y="55" width="124" height="100" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="727" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M4</text>
+<text x="727" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">HDF5 + run folder,</text>
+<text x="727" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">log, checksums</text>
+<rect x="795" y="55" width="124" height="100" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="857" y="72" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M5</text>
+<text x="857" y="106.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">simulator test</text>
+<text x="857" y="120.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">suite</text>
+<text x="470" y="185" font-size="13" text-anchor="middle" font-weight="normal" fill="#6b7280" dominant-baseline="central">software only: everything above runs on a laptop with no hardware</text>
+<rect x="150" y="215" width="150" height="80" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="225" y="232" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">S1</text>
+<text x="225" y="256.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">hardware spike</text>
+<text x="225" y="270.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(throwaway C)</text>
+<rect x="320" y="215" width="150" height="80" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="395" y="232" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M6</text>
+<text x="395" y="263.5" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">DAQmx backend</text>
+<rect x="490" y="215" width="150" height="80" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="565" y="232" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M7</text>
+<text x="565" y="256.35" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">bring-up on</text>
+<text x="565" y="270.65" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">the rig</text>
+<rect x="660" y="215" width="150" height="80" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="735" y="232" font-size="12" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">M8</text>
+<text x="735" y="263.5" font-size="11" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">docs, v0.1</text>
+<text x="470" y="315" font-size="13" text-anchor="middle" font-weight="normal" fill="#6b7280" dominant-baseline="central">hardware: waits for the rig host (USB-6343 is not supported by NI-DAQmx on Linux)</text>
+</svg>

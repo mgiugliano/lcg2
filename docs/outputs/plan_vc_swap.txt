@@ -1,0 +1,19 @@
+LCG2 0.0.1, dry run: the plan
+
+  configuration  examples/lcg2.ini (profile: swap)
+  device         sim  (built-in loopback simulator)
+  mode           vc
+  rate           10 kHz (from the configuration, unless the stimulus states one)
+  seed           drawn at the start and recorded
+  work           play the stimulus text given with -e
+
+  outputs
+    P1       -> ao0  20 mV per volt, limit 5 V, rest 0 mV
+    P2       -> ao2  20 mV per volt, rest 0 mV
+    TTL      -> port0/line0 (digital, clocked)
+
+  inputs (all are recorded)
+    P1       <- ai0  1000 pA per volt, range 10 V, RSE
+    P2       <- ai1  1000 pA per volt, range 10 V, RSE
+
+nothing was played.

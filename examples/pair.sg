@@ -1,0 +1,15 @@
+sg 2 stimulus
+# Two pipettes: pulses into P1 while P2 is held at a small negative current.
+# Look for a synaptic response on the recorded input P2.
+rate 20kHz
+
+channel P1 unit=pA {
+    1s     dc(0)
+    @train
+    500ms  pulses(amp=2000, rate=20Hz, width=1ms)
+    1s     dc(0)
+}
+
+channel P2 unit=pA {
+    2.5s   dc(-50)
+}

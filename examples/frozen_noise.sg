@@ -1,0 +1,13 @@
+sg 2 protocol
+# The same noise 50 times, to measure the reliability of spike times.
+repeat 50
+gap    2s
+noise  per-condition
+
+stimulus {
+    channel P1 unit=pA {
+        500ms dc(0)
+        10s   ou(mean=150, sd=80, tau=5ms)
+        500ms dc(0)
+    }
+}

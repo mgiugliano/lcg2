@@ -1,0 +1,18 @@
+# StimGen 2 version that LCG2 is built and tested against.
+# LCG2 does not keep a copy: the Makefile compiles the library sources from
+# the directory STIMGEN_SRC (default ../StimGen/src) and checks them against
+# the fingerprint below, so a different StimGen is noticed, not silently used.
+
+commit      = 13d2abf598a2cbff72d10aa513d94ffaa2ca4a6a
+sg_version  = 0.2
+date_pinned = 2026-11-18
+
+# SHA-256 of the concatenation, in this order, of:
+#   util.c help.c render.c rng.c parse.c prims.c eval.c protocol.c sgb.c sg_api.c sg.h
+# (command: cd $STIMGEN_SRC && cat <those files> | shasum -a 256)
+sources_sha256 = d49869cc9679fced9b15619602b2de21fc5ec996fb0233e02bd78c2b9b8b5998
+
+# Note: the commit was read from .git/HEAD only; `git log` and `git status` of
+# the StimGen folder failed on a Dropbox read lock when it was pinned, so it is
+# not verified that the working tree equals that commit. The fingerprint above
+# describes the files actually compiled.

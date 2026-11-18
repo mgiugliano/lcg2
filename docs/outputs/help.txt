@@ -1,0 +1,19 @@
+usage: lcg2 [options] STIMULUS.sg      play a stimulus or protocol, record
+       lcg2 [options] -e 'TEXT'        the same, with the text on the command line
+       lcg2 [options] -t DURATION      record only (outputs stay at rest)
+
+options (give the value as a separate word, e.g. -r 20kHz):
+  -c FILE     configuration file (default: lcg2.ini)
+  -P NAME     rig profile: the [profile NAME] section of the file
+  -m cc|vc    amplifier mode: current clamp or voltage clamp
+  -r RATE     sampling rate, e.g. 20kHz or 10000 (Hz)
+  -s SEED     seed of the random generators, a non-negative integer
+  -T NAME     send a plain waveform to the pipette NAME (an [out NAME])
+  -t DURATION record only, for that long, e.g. 30s or 2min
+  -e TEXT     stimulus text given here instead of in a file
+  -p PREFIX   prefix of the names of the output files
+  -n          dry run: check everything, print the plan, play nothing
+  -q, -v      quieter, more verbose
+  -h          this help
+
+exit status: 0 success, 1 error before the run, 2 aborted or failed during it

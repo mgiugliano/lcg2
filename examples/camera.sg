@@ -1,0 +1,15 @@
+sg 2 stimulus
+# A current command together with a camera trigger on the digital line TTL.
+rate 20kHz
+
+channel P1 unit=pA {
+    1s  dc(0)
+    2s  ou(mean=150, sd=60, tau=5ms)
+    1s  dc(0)
+}
+
+digital TTL {
+    1s  dc(0)
+    2s  pulses(amp=1, rate=100Hz, width=1ms)
+    1s  dc(0)
+}

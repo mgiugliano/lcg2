@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 470" width="980" height="470" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+<title id="t">Signal chain</title><desc id="d">Output path: stimulus value, divide by gain, limit check, inverse calibration, board range check, board output. Input path: board input, volts read, calibration, multiply by gain, recorded value.</desc>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111827"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="490" y="24" font-size="17" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">From a number in the stimulus to a voltage on the board, and back</text>
+<text x="20" y="62" font-size="13" text-anchor="start" font-weight="bold" fill="#1d4ed8" dominant-baseline="central">OUTPUT (command)</text>
+<rect x="20" y="85" width="134" height="74" rx="9" fill="#e8eefc" stroke="#1d4ed8" stroke-width="2"/>
+<text x="87" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">stimulus value</text>
+<text x="87" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">e.g. 200 pA</text>
+<text x="87" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(channel unit)</text>
+<rect x="175" y="85" width="134" height="74" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="242" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">divide by gain</text>
+<text x="242" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">400 pA per volt</text>
+<text x="242" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">= 0.5 V wanted</text>
+<rect x="330" y="85" width="134" height="74" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2"/>
+<text x="397" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">limit check</text>
+<text x="397" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">|wanted| &lt;= limit</text>
+<text x="397" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(protects amplifier)</text>
+<rect x="485" y="85" width="134" height="74" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="552" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">inverse calibration</text>
+<text x="552" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(wanted - cal_offset)</text>
+<text x="552" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">/ cal_scale = written</text>
+<rect x="640" y="85" width="134" height="74" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2"/>
+<text x="707" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">board check</text>
+<text x="707" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">|written| &lt;= 10 V</text>
+<text x="707" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(board range)</text>
+<line x1="154" y1="122" x2="175" y2="122" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="309" y1="122" x2="330" y2="122" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="464" y1="122" x2="485" y2="122" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="619" y1="122" x2="640" y2="122" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<rect x="795" y="85" width="165" height="74" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="877.5" y="102" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">board AO line</text>
+<text x="877.5" y="122.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">analog output pin</text>
+<text x="877.5" y="138.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">ao0 .. ao3</text>
+<line x1="774" y1="122" x2="795" y2="122" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<rect x="795" y="190" width="165" height="62" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="877.5" y="207" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">amplifier + cell</text>
+<text x="877.5" y="221.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">real cell, or the</text>
+<text x="877.5" y="237.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">simulated one</text>
+<line x1="877" y1="159" x2="877" y2="190" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<text x="20" y="262" font-size="13" text-anchor="start" font-weight="bold" fill="#1b7f3b" dominant-baseline="central">INPUT (recording)</text>
+<rect x="795" y="295" width="165" height="74" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<text x="877.5" y="312" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">analog input pin</text>
+<text x="877.5" y="332.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">ai0 .. ai15</text>
+<text x="877.5" y="348.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">range, terminal</text>
+<rect x="640" y="295" width="134" height="74" rx="9" fill="#e8eefc" stroke="#1d4ed8" stroke-width="2"/>
+<text x="707" y="312" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">volts read</text>
+<text x="707" y="332.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">a number per sample</text>
+<text x="707" y="348.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">per channel</text>
+<rect x="485" y="295" width="134" height="74" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="552" y="312" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">calibration</text>
+<text x="552" y="332.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">cal_scale * v</text>
+<text x="552" y="348.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">+ cal_offset</text>
+<rect x="330" y="295" width="134" height="74" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
+<text x="397" y="312" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">multiply by gain</text>
+<text x="397" y="340.5" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">100 mV per volt</text>
+<rect x="175" y="295" width="134" height="74" rx="9" fill="#e8eefc" stroke="#1d4ed8" stroke-width="2"/>
+<text x="242" y="312" font-size="13" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">recorded value</text>
+<text x="242" y="332.7" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">mV or pA into HDF5</text>
+<text x="242" y="348.3" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(physical units)</text>
+<line x1="877" y1="252" x2="877" y2="295" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="795" y1="332" x2="774" y2="332" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="640" y1="332" x2="619" y2="332" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="485" y1="332" x2="464" y2="332" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<line x1="330" y1="332" x2="309" y2="332" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
+<text x="490" y="412" font-size="12" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">Gain = channel units per volt, one number per channel and mode (cc or vc). Every limit is checked before anything is played; a sample is never clipped silently.</text>
+<text x="490" y="434" font-size="12" text-anchor="middle" font-weight="normal" fill="#6b7280" dominant-baseline="central">Green boxes are computed by LCG2; blue are values the user sees; amber are safety checks.</text>
+</svg>

@@ -1,0 +1,32 @@
+$ lcg2 -c examples/lcg2.ini -n -T TTL -e x
+lcg2: -T: output 'TTL' is a digital line; a plain waveform needs an analog output
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -n -r 300kHz -e x
+lcg2: rate 300 kHz with 2 analog input(s) is above the board's 500 kS/s total (2 channel(s) at most 250 kHz each)
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -n -P nope -e x
+lcg2: profile 'nope' not found in examples/lcg2.ini (available: single, swap)
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -n -r 20kHZ -e x
+lcg2: -r: '20kHZ' is not a rate (examples: 20kHz, 10000, 2.5Hz)
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -n -t 30
+lcg2: -t: '30' is not a duration (examples: 30s, 500ms, 2min; it must be above 0)
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -n -e x -m ic
+lcg2: -m: expected cc or vc, got 'ic'
+(exit status 1)
+
+$ lcg2 -n -c nosuch.ini -e x
+lcg2: cannot open configuration file 'nosuch.ini': No such file or directory
+(exit status 1)
+
+$ lcg2 -c examples/lcg2.ini -e x
+lcg2: playing and recording are not implemented yet in this build (milestones M0 and M1); use -n to check a configuration
+(exit status 1)
+

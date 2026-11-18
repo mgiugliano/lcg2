@@ -5,9 +5,10 @@ A minimal command-line program for cellular electrophysiology, written in ISO C9
 board and records the analog inputs at the same time. It is a stripped-down successor of the LCG software
 (J Neurosci Methods): no dynamic clamp, no Comedi, no real-time kernel.
 
-**Version 0.1.** Everything runs on a **simulator**: a built-in loopback, or **virtual cells in NEURON** that you
+**Version 0.2.** Everything runs on a **simulator**: a built-in loopback, or **virtual cells in NEURON** that you
 describe in the configuration file (the default is a Hodgkin–Huxley soma; bring your own morphology, biophysics and
-channels if you like). **The board is not supported yet**: no NI-DAQmx backend is written, and nothing in this
+channels if you like), recorded through a **realistic pipette and amplifier**: electrode resistance and capacitance, bridge
+balance, capacitance neutralisation, series-resistance compensation, recording noise, and active electrode compensation. **The board is not supported yet**: no NI-DAQmx backend is written, and nothing in this
 repository touches hardware. Each page of the manual says what is built and what is only designed.
 
 ![Overview](docs/figures/fig-overview.svg)

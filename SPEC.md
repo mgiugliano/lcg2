@@ -2,7 +2,7 @@
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
 2026-11-18, and its findings are applied here. Milestones M0 to M5 (with M3b) are built
-and tested (section 12); sections 4a to 4e record the choices made while building them. Items under "Decided" are the
+and tested (section 12); sections 4a to 4f record the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
 
@@ -376,6 +376,31 @@ without knowing NEURON):
 6. A `-n` of a neuron rig starts NEURON (needs `sim_python` to work) rather than only counting cells.
 
 **Not tested:** Linux, other NEURON versions, `.asc` morphologies, a `.mod` compile on a clean cache on a machine other than the development Mac.
+
+### 4f. The pipette and the amplifier as built (version 0.2)
+
+Added at the owner's request ("recording noise, electrode resistance and capacitance, so that bridge balance and active
+electrode compensation can be applied"). On the NEURON backend, per `[cell]`:
+
+- **Current clamp:** `(Ce - Cn) dVn/dt = Icmd - (Vn - Vm)/Re`, the cell receives `(Vn - Vm)/Re`, the amplifier reports
+  `Vn - Rb Icmd` plus noise. Backward-Euler update of the electrode node per NEURON step, coupled to the cell with a one-step lag;
+  refused when `Re * C(membrane under the electrode) < sim_dt` (it would be unstable), `Cn >= Ce`, or a negative value.
+- **Voltage clamp:** `SEClamp.rs = Rs` (`electrode_resistance`, else `series_resistance`); `rs_compensation` adds `alpha Rs I` to the
+  command (alpha below 1, one-step lag); the pipette capacitance `Cp` draws `Cp dVcmd/dt` over the sample in which the command changes
+  and `cp_compensation` subtracts `Cpc dVcmd/dt`.
+- **Noise:** `recording_noise` rms, white, Gaussian, on every recorded value of the pipette, in the channel's unit; `noise_seed`;
+  Python's `random.Random`, so reproducible, the stream continuing across trials.
+- **`same_as`:** a second electrode on an existing cell (written earlier), with only `electrode` and the electrode keys of its own.
+- **Offline AEC:** `examples/student_kit/aec.py`: deconvolution kernel, exponential tail fit, subtraction (Brette et al. 2008).
+- The default is an ideal electrode, and with no electrode keys the code path and the results are those of 0.1 (tested to 1e-9 mV).
+
+**Choices which the owner may veto:** the lumped single-pole electrode and its units; compensation as *settings fixed for a run*
+(changed with a profile) rather than an interactive control; white noise added to the recording only, at the sample rate
+(not an amplifier noise spectrum, not noise on the injected current); the pipette-capacitance transient spread over one sample;
+the AEC as an offline script, not run inside LCG2; `electrode_resistance` replacing `series_resistance` in voltage clamp.
+
+**Not modelled:** seal resistance, liquid junction potential, amplifier bandwidth, whole-cell capacitance compensation (Cm),
+pipette capacitance dependence on the immersion depth.
 
 ## 5. Hardware facts used (USB-6343 datasheet)
 

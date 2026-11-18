@@ -335,6 +335,139 @@ def fig_cells():
     save(fig, "fig-nrn-cells.svg")
 
 
+def fig_electrode_cc():
+    runs = [("ideal", "no electrode (the truth)", GREY), ("raw", "raw: 50 MΩ, 3 pF", RED), ("bridge", "bridge balance 50 MΩ", ORANGE),
+            ("balanced", "bridge + neutralisation 2.5 pF", GREEN)]
+    fig, (a, b) = plt.subplots(1, 2, figsize=(10, 3.8), gridspec_kw={"width_ratios": [1.3, 1]})
+    for prof, lab, c in runs:
+        v, r = trial(run("rig_electrode.ini", "small_step.sg", "-P", prof), 0, "ai")
+        t = [x * 1000 for x in tt(len(v), r)]
+        a.plot(t, v, color=c, label=lab, lw=1.3 if prof == "ideal" else 1.0)
+        b.plot(t, v, color=c, lw=1.3 if prof == "ideal" else 1.0)
+    a.set_xlim(60, 460)
+    a.set_xlabel("time (ms)")
+    a.set_ylabel("recorded potential (mV)")
+    a.legend(frameon=False, fontsize=8, loc="lower right")
+    b.set_xlim(99, 104)
+    b.set_xlabel("time (ms): the first 5 ms of the step")
+    a.set_title("-20 pA through a 50 MΩ, 3 pF electrode", fontsize=10)
+    b.set_title("zoom on the onset", fontsize=10)
+    fig.tight_layout()
+    save(fig, "fig-nrn-electrode-cc.svg")
+
+
+def fig_electrode_vc():
+    fig, (a, b) = plt.subplots(1, 2, figsize=(10, 3.8))
+    for prof, lab, c in (("ideal", "no electrode (Rs 1 MΩ)", GREY), ("vc_raw", "raw: Rs 10 MΩ, Cp 5 pF", RED),
+                         ("vc_comp", "Rs compensation 70 %, Cp compensation 5 pF", GREEN)):
+        i, r = trial(run("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", prof), 3, "ai")
+        t = [x * 1000 for x in tt(len(i), r)]
+        a.plot(t, [x / 1000.0 for x in i], color=c, label=lab)
+        b.plot(t, [x / 1000.0 for x in i], color=c)
+    a.set_xlim(40, 100)
+    a.set_xlabel("time (ms)")
+    a.set_ylabel("recorded current (nA)")
+    a.legend(frameon=False, fontsize=8, loc="center right")
+    a.set_title("a step from -70 to 0 mV at 50 ms", fontsize=10)
+    b.set_xlim(49.5, 56)
+    b.set_ylim(-20, 14)
+    b.set_xlabel("time (ms): the first 6 ms of the step")
+    b.set_title("zoom: the capacitive transient and the sodium current", fontsize=10)
+    fig.tight_layout()
+    save(fig, "fig-nrn-electrode-vc.svg")
+
+
+def fig_aec():
+    sys.path.insert(0, KIT)
+    import numpy as np
+    import aec
+    h5 = run("rig_aec.ini", "aec_noise.sg", "-s", "5")
+    i, v, r = aec.load(h5)
+    _, truth, _ = aec.load(h5, "V0")
+    k = aec.full_kernel(i, v, int(0.03 * r))
+    ke, km, tau = aec.electrode_kernel(k, r)
+    vc = aec.compensate(i, v, ke)
+    fig, (a, b) = plt.subplots(1, 2, figsize=(10, 3.8), gridspec_kw={"width_ratios": [1.5, 1]})
+    sl = slice(int(2.0 * r), int(2.15 * r))
+    t = np.arange(len(v))[sl] / r
+    off = lambda x: x - x.mean()    # noqa: E731
+    a.plot(t, off(v)[sl], color=RED, lw=0.8, label="recorded through the electrode")
+    a.plot(t, off(truth)[sl], color=GREY, lw=1.6, label="true membrane potential (second electrode)")
+    a.plot(t, off(vc)[sl], color=GREEN, lw=0.8, label="after AEC")
+    a.set_xlabel("time (s)")
+    a.set_ylabel("potential (mV, mean removed)")
+    a.legend(frameon=False, fontsize=8, loc="upper right")
+    tk = np.arange(len(k)) / r * 1000
+    b.plot(tk, k, color=BLUE, label="full kernel K")
+    b.plot(tk, km, color=GREY, ls="--", label="membrane tail, τ = %.1f ms" % (tau * 1e3))
+    b.plot(tk, ke, color=ORANGE, label="electrode kernel Ke")
+    b.set_xlim(0, 12)
+    b.set_xlabel("time (ms)")
+    b.set_ylabel("mV per pA")
+    b.legend(frameon=False, fontsize=8)
+    fig.suptitle("Active electrode compensation: the electrode is learned from noise and subtracted", fontsize=10)
+    fig.tight_layout()
+    save(fig, "fig-nrn-aec.svg")
+
+
+def fig_circuit():
+    fig, (a, b) = plt.subplots(1, 2, figsize=(10.5, 3.6))
+    for ax in (a, b):
+        ax.set_xlim(0, 20)
+        ax.set_ylim(0, 10)
+        ax.axis("off")
+        ax.grid(False)
+
+    def res(ax, x, y, w=3, label=""):
+        ax.add_patch(Rectangle((x, y - 0.4), w, 0.8, fill=False, ec=INK, lw=1.5))
+        ax.text(x + w / 2, y + 0.9, label, ha="center", fontsize=8)
+
+    def cap(ax, x, y, label=""):
+        ax.plot([x - 0.6, x + 0.6], [y, y], color=INK, lw=1.5)
+        ax.plot([x - 0.6, x + 0.6], [y - 0.5, y - 0.5], color=INK, lw=1.5)
+        ax.plot([x, x], [y, y + 1.4], color=INK, lw=1.2)
+        ax.plot([x, x], [y - 0.5, y - 1.4], color=INK, lw=1.2)
+        ax.text(x + 0.9, y - 0.25, label, fontsize=8, va="center")
+    # current clamp
+    ax = a
+    ax.set_title("current clamp", fontsize=10)
+    ax.plot([1, 4], [6, 6], color=INK, lw=1.2)
+    ax.text(0.2, 6, "I_cmd", fontsize=9, va="center")
+    ax.plot([4, 4], [6, 1.6], color=INK, lw=1.2)
+    ax.plot([4, 7], [6, 6], color=INK, lw=1.2)
+    res(ax, 7, 6, 3, "Re (electrode_resistance)")
+    ax.plot([10, 14], [6, 6], color=INK, lw=1.2)
+    ax.text(4.3, 4.6, "V_n: what is recorded", fontsize=8)
+    cap(ax, 4, 3.4, "Ce (electrode_capacitance)")
+    ax.plot([4, 4], [1.6, 1.0], color=INK, lw=1.2)
+    ax.plot([2.6, 5.4], [1.0, 1.0], color=INK, lw=1.2)
+    ax.plot([14, 14], [6, 4.6], color=INK, lw=1.2)
+    ax.add_patch(Rectangle((13.3, 3.2), 1.4, 1.4, fill=False, ec=BLUE, lw=1.5))
+    ax.text(16.4, 3.9, "the cell:\nV_m", fontsize=9, va="center", color=BLUE)
+    ax.plot([14, 14], [3.2, 1.0], color=INK, lw=1.2)
+    ax.plot([13, 15], [1.0, 1.0], color=INK, lw=1.2)
+    ax.text(10, 9, "amplifier: V_out = V_n - R_bridge * I_cmd (bridge_balance)\nCe_eff = Ce - Cn (cap_neutralization)", ha="center", fontsize=8, color=GREEN)
+    # voltage clamp
+    ax = b
+    ax.set_title("voltage clamp", fontsize=10)
+    ax.plot([1, 4], [6, 6], color=INK, lw=1.2)
+    ax.text(0.1, 6, "V_cmd", fontsize=9, va="center")
+    ax.plot([4, 7], [6, 6], color=INK, lw=1.2)
+    cap(ax, 4, 3.4, "Cp (electrode_capacitance)")
+    ax.plot([4, 4], [6, 4.8], color=INK, lw=1.2)
+    ax.plot([4, 4], [2.0, 1.0], color=INK, lw=1.2)
+    ax.plot([2.6, 5.4], [1.0, 1.0], color=INK, lw=1.2)
+    res(ax, 7, 6, 3, "Rs (electrode_resistance)")
+    ax.plot([10, 14], [6, 6], color=INK, lw=1.2)
+    ax.plot([14, 14], [6, 4.6], color=INK, lw=1.2)
+    ax.add_patch(Rectangle((13.3, 3.2), 1.4, 1.4, fill=False, ec=BLUE, lw=1.5))
+    ax.text(16.4, 3.9, "the cell\n(Cm, channels)", fontsize=9, va="center", color=BLUE)
+    ax.plot([14, 14], [3.2, 1.0], color=INK, lw=1.2)
+    ax.plot([13, 15], [1.0, 1.0], color=INK, lw=1.2)
+    ax.text(10, 9, "amplifier: command + a * Rs * I  (rs_compensation, a < 1)\nrecorded I - Cp_comp * dV/dt  (cp_compensation)", ha="center", fontsize=8, color=GREEN)
+    save(fig, "fig-nrn-electrode-circuit.svg")
+
+
 if __name__ == "__main__":
     for tool in (LCG2,):
         if not os.path.exists(tool):
@@ -350,3 +483,7 @@ if __name__ == "__main__":
     fig_custom()
     fig_morph()
     fig_cells()
+    fig_electrode_cc()
+    fig_electrode_vc()
+    fig_aec()
+    fig_circuit()

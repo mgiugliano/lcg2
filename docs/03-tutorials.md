@@ -627,6 +627,6 @@ $ ./lcg2 -c examples/student_kit/rig_morphology.ini examples/student_kit/current
 ```
 
 The keys, the model contract (Python, hoc, SWC, `.mod`), the units rule and the limits are in
-[14 Virtual cells](14-neuron-models.md). **Nine longer tutorials with figures** (excitability, voltage clamp, synapses,
-writing your own cell, a morphology, your own channel) are in [16 Tutorials with virtual cells](16-neuron-tutorials.md);
+[14 Virtual cells](14-neuron-models.md). **Ten longer tutorials with figures** (excitability, voltage clamp, synapses,
+writing your own cell, a morphology, your own channel, a real electrode with bridge balance and compensation) are in [16 Tutorials with virtual cells](16-neuron-tutorials.md);
 the exercises are in the kit's `README.md`.

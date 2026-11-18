@@ -656,11 +656,110 @@ def test_tutorials(tmp):
         print("      (plot_run.py not tested: no matplotlib)")
 
 
+def test_electrodes(tmp):
+    """The pipette and the amplifier: resistance, capacitance, bridge balance, neutralisation, compensation, noise."""
+    d = newdir(tmp, "electrodes")
+    for f in os.listdir(KIT):
+        pth = os.path.join(KIT, f)
+        if f.endswith(".ini"):
+            write(os.path.join(d, f), open(pth).read().replace("/opt/homebrew/opt/python@3.11/bin/python3.11", PY))
+        elif os.path.isdir(pth):
+            shutil.copytree(pth, os.path.join(d, f))
+        elif not f.endswith(".pyc"):
+            shutil.copy(pth, d)
+    runs = [0]
+
+    def trace_of(rig, stim, *extra, trial=0):
+        runs[0] += 1
+        w = newdir(tmp, "el_run_%d" % runs[0])
+        r = lcg(["-q"] + list(extra) + ["-c", os.path.join(d, rig), os.path.join(d, stim)], w)
+        if r.returncode != 0:
+            print("      run failed:", r.stderr)
+            return None
+        return trace(h5_of(w), trial, "P1")
+
+    ideal = trace_of("rig_electrode.ini", "small_step.sg", "-P", "ideal")
+    raw = trace_of("rig_electrode.ini", "small_step.sg", "-P", "raw")
+    bridge = trace_of("rig_electrode.ini", "small_step.sg", "-P", "bridge")
+    bal = trace_of("rig_electrode.ini", "small_step.sg", "-P", "balanced")
+    if ideal is None or raw is None or bridge is None or bal is None:
+        check("the electrode profiles run", False)
+        return
+    a = 7000                                                    # 350 ms: the step (from 100 ms to 400 ms) has settled
+    check("cc: the electrode adds its voltage drop: -20 pA through 50 MOhm is exactly -1.000 mV (%.4f)" % (raw[a] - ideal[a]),
+          abs((raw[a] - ideal[a]) + 1.0) < 0.005, raw[a] - ideal[a])
+    check("cc: bridge balance removes it at steady state (%.4f mV left)" % (bridge[a] - ideal[a]), abs(bridge[a] - ideal[a]) < 0.005)
+    onset = range(2000, 2040)                                   # the first 2 ms of the step
+    e_bridge = max(abs(bridge[i] - ideal[i]) for i in onset)
+    e_bal = max(abs(bal[i] - ideal[i]) for i in onset)
+    check("cc: neutralising the capacitance too makes the transient after the step smaller (%.2f against %.2f mV)" % (e_bal, e_bridge),
+          e_bal < 0.5 * e_bridge, (e_bal, e_bridge))
+    check("cc: the electrode capacitance slows the raw recording (it is not the ideal one in the first millisecond)",
+          max(abs(raw[i] - ideal[i]) for i in onset) > 0.3)
+    # the cell sees the injected current: it is the same cell, so the settled potential of the cell is unchanged
+    check("cc: the cell itself is unchanged: bridge-balanced equals ideal at rest too", abs(bridge[1000] - ideal[1000]) < 0.005)
+    # an ideal electrode written out in the file equals no electrode keys at all (the fast path)
+    plain = trace_of("rig.ini", "small_step.sg")
+    check("cc: electrode keys at zero reproduce the plain cell exactly", max(abs(p - q) for p, q in zip(plain, ideal)) < 1e-9)
+    n1 = trace_of("rig_electrode.ini", "small_step.sg", "-P", "noisy")
+    n2 = trace_of("rig_electrode.ini", "small_step.sg", "-P", "noisy")
+    import statistics
+    sd = statistics.pstdev([n1[i] - raw[i] for i in range(1500)])
+    check("noise: 0.3 mV rms is recorded as %.3f mV rms" % sd, 0.25 < sd < 0.35, sd)
+    check("noise: the same run gives the same noise (reproducible)", n1 is not None and max(abs(p - q) for p, q in zip(n1, n2)) < 1e-12)
+    # voltage clamp
+    ivc = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "ideal", trial=3)
+    rvc = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_raw", trial=3)
+    cvc = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_comp", trial=3)
+    if ivc is None or rvc is None or cvc is None:
+        check("the voltage-clamp electrode profiles run", False)
+        return
+    end = 1190                                                  # end of the 0 mV step (50 + 30 ms = 80 ms = sample 1600; 1190 is 59.5 ms)
+    peak = lambda x: min(x[1005:1200])                          # noqa: E731
+    check("vc: a 10 MOhm series resistance cuts the sodium current the clamp can hold (%.0f against %.0f pA)" % (peak(rvc), peak(ivc)),
+          peak(rvc) > 0.5 * peak(ivc), (peak(rvc), peak(ivc)))
+    check("vc: rs_compensation 70 percent restores much of it (%.0f pA)" % peak(cvc), abs(peak(cvc)) > 1.5 * abs(peak(rvc)),
+          (peak(rvc), peak(cvc)))
+    check("vc: the pipette capacitance transient (5 pF) is in the raw first sample and cp_compensation removes it",
+          rvc[1000] - cvc[1000] > 2000, (rvc[1000], cvc[1000]))
+
+    # active electrode compensation: noise injected through a bad electrode, the electrode learned and subtracted
+    w = newdir(tmp, "el_aec")
+    r = lcg(["-q", "-s", "5", "-c", os.path.join(d, "rig_aec.ini"), os.path.join(d, "aec_noise.sg")], w)
+    out = go([PY, os.path.join(d, "aec.py"), h5_of(w)], w).stdout
+    import re as _re
+    m = _re.search(r"([0-9.]+) mV rms before, ([0-9.]+) mV rms after", out)
+    check("aec: the compensated recording is at least 3 times closer to the true membrane potential (a second, ideal electrode "
+          "on the same cell) than the raw one", r.returncode == 0 and m is not None and float(m.group(1)) > 3 * float(m.group(2)), out)
+    with h5py.File(h5_of(w), "r") as f:
+        both = f["trial_0000/ai/P1"][:], f["trial_0000/ai/V0"][:]
+    check("same_as: the second electrode records the same cell (it differs from the pipette P1 by its electrode only: "
+          "an ideal electrode and the electrode-free run agree, P1 does not)", abs(both[0] - both[1]).max() > 2.0
+          and abs(both[1]).max() < 200)
+
+    def bad(label, extra, expect):
+        w = newdir(tmp, "el_bad_%d" % len(label))
+        ini = open(os.path.join(d, "rig_electrode.ini")).read()
+        if extra.startswith("electrode_resistance"):
+            ini = ini.replace("electrode_resistance  = 50", extra, 1)
+        else:
+            ini = ini.replace("recording_noise       = 0       ; mV (cc) or pA (vc), rms", "recording_noise = 0\n" + extra)
+        write(os.path.join(d, "bad_el.ini"), ini)
+        r = lcg(["-n", "-c", os.path.join(d, "bad_el.ini"), os.path.join(d, "small_step.sg")], w)
+        check("%s -> %s" % (label, expect), r.returncode == 1 and expect in r.stderr, "exit %d\n%s" % (r.returncode, r.stderr))
+    bad("neutralisation beyond the electrode capacitance", "cap_neutralization = 3.5", "must stay below electrode_capacitance")
+    bad("full series-resistance compensation", "rs_compensation = 100", "must be below 100 percent")
+    bad("a negative resistance", "bridge_balance = -5", "must not be negative")
+    bad("an electrode too small for the time step", "electrode_resistance = 0.5", "too small for sim_dt")
+    bad("an unknown unit", "bridge_balance = 50 ohms", "unknown unit")
+    bad("same_as naming a cell that is not there", "[cell W]\nsame_as = Nope", "must name a [cell] written EARLIER")
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
         for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
-                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_kill_adapter, test_ctrl_c):
+                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

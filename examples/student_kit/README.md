@@ -30,6 +30,8 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
 | `small_step.sg`, `sag_step.sg`, `current_steps_fine.sg` | more stimuli: input resistance, the sag, the firing threshold |
 | `rig_ih.ini`, `soma_ih.py`, `channels/ih.mod` | a cell with your own channel (compiled automatically) |
 | `rig_custom.ini`, `two_compartment.py` | a cell written from scratch in Python |
+| `rig_electrode.ini` | the pipette and the amplifier: resistance, capacitance, bridge balance, neutralisation, compensation, noise |
+| `rig_aec.ini`, `aec_noise.sg`, `aec.py` | active electrode compensation, with a second electrode that records the truth |
 | `pyramidal.py`, `simple_cell.hoc`, `tiny.swc`, `cell_tuning.py`, `start_depolarised.py` | cell models, as examples to copy |
 
 ## Exercises
@@ -50,7 +52,11 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
    `cell_tuning.py` (conductances, which sections have what) and repeat 1 and 2.
 7. **A channel of your own.** `rig_ih.ini` and `sag_step.sg`, then `characterise.py sag`; compare `-P noih`; edit
    `channels/ih.mod` (the half-activation voltage) and run again. Tutorial H explains it.
-8. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
+8. **A real electrode.** `rig_electrode.ini`: record the same step with `-P ideal`, `raw`, `bridge`, `balanced`; in voltage clamp
+   (`-m vc`) with `vc_raw` and `vc_comp`. Find the bridge balance that removes the jump at the step's edges. Tutorial J.
+9. **Active electrode compensation.** `rig_aec.ini` with `aec_noise.sg` and `aec.py`: how much of the electrode does it remove? Change
+   `electrode_resistance`; use a longer noise.
+10. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
    threshold, adaptation, the membrane time constant from a small step).
 
 Things to keep in mind, as on a real rig: the **range** of an input clips what is too large (a warning says so);

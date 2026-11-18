@@ -1,0 +1,7 @@
+sg 2 stimulus
+# Broadband noise current for active electrode compensation: the electrode's response is learned from it.
+rate 20kHz
+
+channel P1 unit=pA {
+    10s ou(mean=0, sd=100, tau=0.1ms)
+}

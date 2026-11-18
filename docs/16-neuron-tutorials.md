@@ -6,7 +6,7 @@
 > [`docs/figures/make_neuron_figures.py`](figures/make_neuron_figures.py), which runs `lcg2` itself.
 > The reference for all keys is [14 Virtual cells](14-neuron-models.md).
 
-These tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
+These ten tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
 **your own** cell on the rig. You do not need to know NEURON. The kit has everything.
 
 **Before you start**
@@ -30,6 +30,7 @@ These tutorials teach patch-clamp electrophysiology on cells that exist only in 
 | G | [A morphology file](#g-a-cell-from-a-morphology-file-with-your-own-biophysics-and-initialisation) | SWC, biophysics, initialisation |
 | H | [Your own channel](#h-your-own-channel-a-mod-file) | a `.mod` file: Ih and the sag |
 | I | [Comparing cells, repeating runs](#i-comparing-cells-and-repeating-a-run) | profiles, batches, the run folder |
+| J | [A real electrode](#j-a-real-electrode-bridge-balance-compensation-noise-and-aec) | pipette resistance and capacitance, bridge balance, neutralisation, series-resistance compensation, noise, active electrode compensation |
 
 ---
 
@@ -447,6 +448,121 @@ and `shasum -a 256 -c .STEM/SHA256SUMS` proves nothing changed. See [13 Data for
 
 **Plot it.** `python3 examples/student_kit/plot_run.py FILE.h5 3` draws trial 3 (the command and the recording);
 add a file name to save it (`... 3 out.svg`).
+
+---
+
+## J. A real electrode: bridge balance, compensation, noise, and AEC
+
+**Goal:** record through a pipette that is not ideal, see the artefacts it adds, and correct them as you would on a
+rig: bridge balance and capacitance neutralisation in current clamp, series-resistance and pipette-capacitance
+compensation in voltage clamp, and finally **active electrode compensation** (AEC) done on the recording afterwards.
+
+Until now the electrode was ideal. A real pipette has a resistance and a capacitance, and every number it adds is in the
+recording ([14](14-neuron-models.md#the-pipette-and-the-amplifier) has the circuits and the equations):
+
+![electrode circuits](figures/fig-nrn-electrode-circuit.svg)
+
+`rig_electrode.ini` gives the cell a 50 MΩ, 3 pF pipette (`electrode_resistance`, `electrode_capacitance`) and has profiles
+for each correction. The amplifier settings are part of the configuration, as on a rig they are knobs you set before
+the experiment: you change them with a profile on the command line (they are fixed during a run).
+
+### J1. Current clamp: the voltage drop across the electrode
+
+The same −20 pA step as in tutorial A, with no electrode (the truth), through the raw electrode, with the bridge balanced
+at 50 MΩ, and with the capacitance also neutralised:
+
+```console
+$ ./lcg2 -P ideal -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+$ ./lcg2 -P raw -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+$ ./lcg2 -P bridge -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+$ ./lcg2 -P balanced -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+```
+
+![the electrode in current clamp](figures/fig-nrn-electrode-cc.svg)
+
+**Raw.** The recording sits **1.000 mV** below the truth for the whole step: that is Ohm's law, −20 pA × 50 MΩ, the voltage
+drop of the injected current across the electrode. A recording of the cell this way is wrong by exactly what you inject,
+and the error changes with every current.
+**Bridge balance.** The amplifier knows the current it injects, so it subtracts `Rb × I`. With `bridge_balance = 50`, equal to
+the electrode, the steady level is exactly the truth (the difference is below a microvolt in the simulation). On a real rig
+you adjust the knob until the sudden jump at the beginning and the end of a step disappears.
+**But** look at the right-hand panel, the first 5 ms: the jump is removed immediately, while the electrode node follows only
+slowly, charging the pipette capacitance through the resistance, so the bridge-balanced trace *overshoots* at the onset
+(0.81 mV off the truth, worse than raw, 0.55 mV, in the first two milliseconds).
+**Capacitance neutralisation** is the second knob: the amplifier feeds back positive current that cancels most of the
+pipette capacitance (`cap_neutralization = 2.5` of the 3 pF). The onset error falls to 0.32 mV. Push it to 3 pF or more and
+the amplifier would oscillate, as a real one does; LCG2 refuses such a setting.
+
+### J2. Noise
+
+`recording_noise` adds white Gaussian noise (rms, in the unit of the recording, mV in current clamp, pA in voltage clamp):
+
+```console
+$ ./lcg2 -P noisy -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+```
+
+The profile `noisy` asks for 0.3 mV rms and the recording has 0.305 mV. The noise is the same every time you repeat the run
+(`noise_seed`; give another to get another sample), and it goes on from one trial to the next, so trials differ. Measure the
+resting noise in the first 100 ms and the signal-to-noise of a small step: how large a PSP can you see?
+
+### J3. Voltage clamp: series resistance and the pipette capacitance
+
+In voltage clamp the electrode's resistance is the series resistance Rs between the amplifier and the cell: the cell does not
+see the command, it sees the command minus Rs × I. The vc profiles use a 10 MΩ electrode with 5 pF of pipette capacitance and the
+step to 0 mV of tutorial C:
+
+```console
+$ ./lcg2 -m vc -P ideal -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+$ ./lcg2 -m vc -P vc_raw -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+$ ./lcg2 -m vc -P vc_comp -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+```
+
+![the electrode in voltage clamp](figures/fig-nrn-electrode-vc.svg)
+
+**Raw.** The large sodium current (15 nA at the peak in the ideal case) would drop 150 mV across 10 MΩ, twice the 70 mV step: the
+cell is not clamped, so the recorded peak is only −3.8 nA instead of −15.6 nA, and the steady current is 3.7 nA instead of
+14.9 nA. This is the textbook reason for keeping Rs small and for reading the currents of large cells with suspicion. The
+first sample also holds the capacitive transient of the **pipette** (5 pF × 70 mV in one sample), which is not the cell's:
+11.9 nA against 8.1 nA.
+**Compensated.** `rs_compensation = 70` feeds back 70 % of `Rs × I`: the peak recovers to −9.6 nA and the steady current to
+8.7 nA, and `cp_compensation = 5` subtracts the pipette transient (first sample 8.3 nA, back to the cell's own). Compensation
+cannot be 100 %: positive feedback of that size is unstable, so LCG2 refuses it; and the usual rule applies: a
+compensation that is too large rings.
+
+### J4. Active electrode compensation, offline
+
+Instead of balancing knobs, **learn the electrode** from the recording itself and subtract it. The method of Brette et al.
+(2008): inject a broadband noise current; the recorded potential is linear in the current, `V = K * I`; the kernel K is the sum of
+a slow membrane part (an exponential for a passive cell) and a fast electrode part; fit the slow tail and what is left is the
+electrode kernel Ke; then `Vm = V − Ke * I`, for this recording and for any other made through the same electrode.
+
+`rig_aec.ini` has a **passive** cell (no voltage-gated channels, so one time constant), the same bad electrode, and, with `same_as`,
+a **second, ideal electrode on the same cell** (`V0`) that records the true membrane potential: something a real experiment
+never has, so that you can judge the result. A fixed seed (`-s 5`) makes the noise stimulus repeatable:
+
+```console
+$ ./lcg2 -s 5 -c examples/student_kit/rig_aec.ini examples/student_kit/aec_noise.sg
+```
+
+```console
+$ python3 examples/student_kit/aec.py FILE.h5
+estimated membrane time constant: 4.17 ms
+electrode kernel: peak 0.010 mV/pA at 0.00 ms; the electrode contributes 2.07 mV rms to the recording
+error against the true membrane potential (V0): 2.661 mV rms before, 0.606 mV rms after (4x better)
+```
+
+![active electrode compensation](figures/fig-nrn-aec.svg)
+
+The recording through the electrode (red) differs from the true potential (grey) by 2.7 mV rms; after AEC (green) by 0.6 mV rms:
+four times closer. The right panel shows the three kernels: the full one, the membrane's exponential tail (τ = 4.2 ms), and the
+electrode's, which lasts under a millisecond. Not perfect (0.6 mV is left), because the cell does not receive exactly the
+command through a capacitive electrode, and the kernel is an estimate from noise. **Try:** `-P ideal` has no electrode (AEC
+then finds nothing to remove); change `electrode_resistance`, give the cell `gnabar = 0.12` again and see why AEC is described
+for subthreshold recordings (a spiking cell is not linear).
+
+**Where this stops.** LCG2 simulates a lumped pipette and a first-order amplifier; there is no seal resistance, liquid junction
+potential, amplifier bandwidth limit or whole-cell capacitance compensation, and the compensations are settings, not an
+interactive knob during a run. The list is in [14](14-neuron-models.md#limits-what-this-does-not-do).
 
 ---
 

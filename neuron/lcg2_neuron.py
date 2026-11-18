@@ -36,6 +36,7 @@ import inspect
 import json
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -387,7 +388,10 @@ def locate(cell, text, what):
 # the network
 # --------------------------------------------------------------------------
 
-CELL_KEYS = ("model", "template", "morphology", "biophysics", "init", "mechanisms", "electrode", "d_lambda", "series_resistance")
+ELECTRODE_KEYS = ("electrode_resistance", "electrode_capacitance", "recording_noise", "noise_seed", "bridge_balance",
+                  "cap_neutralization", "rs_compensation", "cp_compensation")
+CELL_KEYS = ("model", "template", "morphology", "biophysics", "init", "mechanisms", "electrode", "d_lambda",
+             "series_resistance", "same_as") + ELECTRODE_KEYS
 
 
 def build_cell(h, name, spec, base, loaded_mech):
@@ -493,6 +497,137 @@ def run_hook(h, path, hook, obj, sections, params, what, name):
         raise Problem("%s %s: '%s' is not a .py or .hoc file" % (what, hook, path))
 
 
+# --------------------------------------------------------------------------
+# electrodes: the pipette, the amplifier, the noise
+# --------------------------------------------------------------------------
+#
+# Units on this side: nA, mV, MOhm, pF, ms (so that nA*MOhm = mV and nA*ms/pF = mV).
+#
+# Current clamp.  The pipette is a series resistance Re between the amplifier and the cell and a capacitance Ce
+# from the amplifier side to ground:
+#       (Ce - Cn) dVn/dt = Icmd - (Vn - Vm)/Re          Iin = (Vn - Vm)/Re  flows into the cell
+# (nA * ms / pF is 1000 mV, MOhm * pF is a microsecond: the factors of 1000 are in pre()).
+# The amplifier reports Vn - Rb*Icmd (Rb is the bridge balance, Cn the capacitance neutralisation), plus noise.
+# With Re = Ce = Rb = Cn = 0 this is an ideal electrode and the cell sees Icmd exactly.
+#
+# Voltage clamp.  The clamp has a series resistance Rs (electrode_resistance, or series_resistance) between the
+# amplifier and the cell.  Series-resistance compensation is positive feedback: the amplifier adds
+# alpha*Rs*I to its command (alpha = rs_compensation/100).  The pipette capacitance Cp draws Cp*dVcmd/dt
+# (spread over the sample in which the command changes) and the amplifier subtracts Cpc*dVcmd/dt
+# (cp_compensation).  The current is reported with noise.
+
+
+class Noise(object):
+    """White Gaussian noise, reproducible: the stream continues from trial to trial."""
+
+    def __init__(self, sd, seed):
+        self.sd = sd
+        self.rng = random.Random(seed)
+
+    def __call__(self):
+        return self.rng.gauss(0.0, self.sd) if self.sd else 0.0
+
+
+def electrode_spec(name, spec):
+    w = "[cell %s] " % name
+
+    def g(key, unit, units=None, default=0.0):
+        x = number(spec.get(key, default), w + key + " (" + unit + ")", units)
+        if x < 0:
+            raise Problem("%s%s must not be negative (it is %g)" % (w, key, x))
+        return x
+    R = {"MOhm": 1.0, "kOhm": 0.001, "GOhm": 1000.0}
+    C = {"pF": 1.0, "nF": 1000.0}
+    e = dict(re=g("electrode_resistance", "MOhm", R), ce=g("electrode_capacitance", "pF", C),
+             noise=g("recording_noise", "mV or pA, rms"), rb=g("bridge_balance", "MOhm", R),
+             cn=g("cap_neutralization", "pF", C), rsc=g("rs_compensation", "percent"), cpc=g("cp_compensation", "pF", C),
+             seed=int(g("noise_seed", "integer", None, 1)), rs=g("series_resistance", "MOhm", R, 1.0))
+    if e["cn"] > 0 and e["cn"] >= e["ce"]:
+        raise Problem("%scap_neutralization (%g pF) must stay below electrode_capacitance (%g pF): at or above it the "
+                      "amplifier would oscillate, as a real one does" % (w, e["cn"], e["ce"]))
+    if e["rsc"] >= 100:
+        raise Problem("%srs_compensation must be below 100 percent (it is %g): at 100 the loop is unstable" % (w, e["rsc"]))
+    e["model"] = any(e[k] > 0 for k in ("re", "ce", "rb", "cn", "rsc", "cpc"))
+    e["active"] = e["model"] or e["noise"] > 0
+    return e
+
+
+class CCElectrode(object):
+    kind = "i"
+
+    def __init__(self, h, rec, es):
+        self.clamp = h.IClamp(rec["seg"])
+        self.clamp.delay, self.clamp.dur, self.clamp.amp = 0, 1e9, 0
+        self.vref = rec["seg"]._ref_v
+        self.re, self.ce, self.cn, self.rb = es["re"], es["ce"], es["cn"], es["rb"]
+        self.model = es["model"]
+        self.icmd = 0.0
+        self.vn = rec["seg"].v
+
+    def command(self, pa, T_ms=None):
+        self.icmd = pa * 1e-3
+
+    def pre(self, dt):
+        if not self.model:
+            self.clamp.amp = self.icmd
+            return
+        vm = self.vref[0]
+        if self.re <= 0:
+            self.vn, iin = vm, self.icmd
+        elif self.ce <= 0:
+            self.vn, iin = vm + self.re * self.icmd, self.icmd
+        else:
+            k = dt * 1000.0 / (self.ce - self.cn)          # nA*ms/pF is 1000 mV: k is in mV per nA
+            self.vn = (self.vn + k * (self.icmd + vm / self.re)) / (1.0 + k / self.re)
+            iin = (self.vn - vm) / self.re
+        self.clamp.amp = iin
+
+    def post(self):
+        pass
+
+    def read_v(self):
+        if not self.model:
+            return self.vref[0]
+        vn = self.vref[0] if self.re <= 0 else self.vn
+        return vn - self.rb * self.icmd
+
+    def read_i(self):
+        return self.icmd * 1e3
+
+
+class VCElectrode(object):
+    kind = "v"
+
+    def __init__(self, h, rec, es):
+        self.clamp = h.SEClamp(rec["seg"])
+        self.clamp.dur1, self.clamp.dur2, self.clamp.dur3, self.clamp.amp1 = 1e9, 0, 0, 0
+        self.rs = es["re"] if es["re"] > 0 else es["rs"]
+        self.clamp.rs = self.rs
+        self.alpha = es["rsc"] / 100.0
+        self.cp, self.cpc = es["ce"], es["cpc"]
+        self.model = es["model"]
+        self.vref = rec["seg"]._ref_v
+        self.iref = self.clamp._ref_i
+        self.vcmd, self.vprev, self.dv = 0.0, None, 0.0
+
+    def command(self, mv, T_ms=None):
+        self.dv = 0.0 if (self.vprev is None or not T_ms) else (mv - self.vprev) / T_ms
+        self.vprev = mv
+        self.vcmd = mv
+
+    def pre(self, dt):
+        self.clamp.amp1 = self.vcmd + self.alpha * self.rs * self.iref[0] if self.model else self.vcmd
+
+    def post(self):
+        pass
+
+    def read_v(self):
+        return self.vref[0]
+
+    def read_i(self):
+        return self.iref[0] * 1e3 + (self.cp - self.cpc) * self.dv
+
+
 class Network(object):
     def __init__(self, h, prep, base, outs, ins, opts):
         self.h = h
@@ -507,7 +642,22 @@ class Network(object):
             raise Problem("device = neuron needs at least one [cell NAME] section (for example [cell P1] with "
                           "model = hh_soma)")
         for name in names:
-            rec = build_cell(h, name, sections["cell " + name], base, self.mech)
+            spec = sections["cell " + name]
+            if "same_as" in spec:                       # a second electrode on a cell that already exists
+                target = self.cells.get(spec["same_as"])
+                if target is None:
+                    raise Problem("[cell %s]: same_as = '%s' must name a [cell] written EARLIER in the file (cells: %s)"
+                                  % (name, spec["same_as"], ", ".join(self.cells) or "none yet"))
+                others = sorted(k for k in spec if k not in ("same_as", "electrode") + ELECTRODE_KEYS)
+                if others:
+                    raise Problem("[cell %s]: with same_as the cell is that of %s; '%s' belongs to the cell, not to the "
+                                  "electrode (only electrode and the electrode_/amplifier keys are allowed here)"
+                                  % (name, spec["same_as"], others[0]))
+                rec = dict(target)
+                rec.update(spec=spec, name=name, files=[], init=None, shared=spec["same_as"])
+                self.cells[name] = rec
+                continue
+            rec = build_cell(h, name, spec, base, self.mech)
             self.cells[name] = rec
             self.files += rec["files"]
         for s in sections:
@@ -519,32 +669,46 @@ class Network(object):
             rec["loc"] = loc
 
         # electrodes
-        self.out_e, self.in_e = [], []
+        self.out_e, self.in_e, self.out_el, self.noise, self.in_read = [], [], [], {}, []
+        for name, rec in self.cells.items():
+            rec["es"] = electrode_spec(name, rec["spec"])
+            if rec["es"]["noise"] > 0:
+                self.noise[name] = Noise(rec["es"]["noise"], rec["es"]["seed"] + 7919 * len(self.noise))
         for o in outs:
             rec = self.cells.get(o["name"])
             if rec is None:
                 raise Problem("[out %s] has no [cell %s]: with device = neuron every pipette needs a cell" % (o["name"], o["name"]))
+            es = rec["es"]
             if o["dim"] == "current":
-                c = h.IClamp(rec["seg"])
-                c.delay, c.dur, c.amp = 0, 1e9, 0
-                self.out_e.append(("i", c))
+                el = CCElectrode(h, rec, es)
+                if es["re"] > 0 and es["ce"] > 0:               # the electrode is stiff: the explicit coupling must be stable
+                    cseg = rec["seg"].area() * rec["seg"].cm * 0.01
+                    if es["re"] * cseg * 1e-3 < opts["dt_ms"]:             # Re * C in ms: MOhm * pF is a microsecond
+                        raise Problem("[cell %s] electrode_resistance %g MOhm is too small for sim_dt %g ms with the "
+                                      "%.1f pF of membrane under the electrode: use at least %.1f MOhm or a smaller sim_dt"
+                                      % (o["name"], es["re"], opts["dt_ms"], cseg, opts["dt_ms"] * 1000.0 / cseg))
             else:
-                c = h.SEClamp(rec["seg"])
-                c.dur1, c.dur2, c.dur3, c.amp1 = 1e9, 0, 0, 0
-                c.rs = number(rec["spec"].get("series_resistance", 1.0), "[cell %s] series_resistance (MOhm)" % name, {"MOhm": 1.0, "kOhm": 0.001})
-                self.out_e.append(("v", c))
-            rec["clamp"] = c
+                el = VCElectrode(h, rec, es)
+            self.out_e.append((el.kind, el.clamp))
+            self.out_el.append(el)
+            rec["clamp"], rec["el"] = el.clamp, el
         for i in ins:
             rec = self.cells.get(i["name"])
             if rec is None:
                 raise Problem("[in %s] has no [cell %s]: with device = neuron every pipette needs a cell" % (i["name"], i["name"]))
+            noise = self.noise.get(i["name"])
+            el = rec.get("el")
             if i["dim"] == "voltage":
                 self.in_e.append(("v", rec["seg"]._ref_v))
+                read = el.read_v if el else (lambda ref=rec["seg"]._ref_v: ref[0])
             else:
-                if "clamp" not in rec:
+                if el is None:
                     raise Problem("[in %s] records current but there is no [out %s] to inject it" % (i["name"], i["name"]))
-                c = rec["clamp"]
-                self.in_e.append(("i", c._ref_amp if type(c).__name__ == "IClamp" else c._ref_i))
+                self.in_e.append(("i", el.clamp._ref_amp if el.kind == "i" else el.clamp._ref_i))
+                read = el.read_i
+            self.in_read.append((read, noise))
+        # the fast path (plain clamps, nothing else) is used unless a pipette has something to model
+        self.model = any(el.model for el in self.out_el) or bool(self.noise)
         self.opts = opts
         self.nsub = 1
         h.dt = opts["dt_ms"]
@@ -590,6 +754,10 @@ class Network(object):
 
     # -- time ---------------------------------------------------------
     def set_commands(self, cmd):
+        if self.model:
+            for el, x in zip(self.out_el, cmd):
+                el.command(x, None)
+            return
         for (kind, c), x in zip(self.out_e, cmd):
             if kind == "i":
                 c.amp = x * 1e-3          # pA -> nA
@@ -603,8 +771,15 @@ class Network(object):
             return
         target = h.t + dur_ms
         n = max(1, int(round(dur_ms / h.dt)))
-        for _ in range(n):
-            h.fadvance()
+        if self.model:
+            els, dt, fadvance = self.out_el, h.dt, h.fadvance
+            for _ in range(n):
+                for el in els:
+                    el.pre(dt)
+                fadvance()
+        else:
+            for _ in range(n):
+                h.fadvance()
         if abs(h.t - target) > 1e-6 * max(1.0, dur_ms):
             log("warning: advanced to t=%.6f ms instead of %.6f" % (h.t, target))
 
@@ -612,6 +787,7 @@ class Network(object):
         period_ms = 1000.0 * q / p
         self.nsub = max(1, int(math.ceil(period_ms / self.opts["dt_ms"] - 1e-9)))
         self.h.dt = period_ms / self.nsub
+        self.period_ms = period_ms
 
     def block(self, cmd, count):
         """cmd: per output an array('d') of `count` values (pA or mV). Returns per input an array('d')."""
@@ -620,6 +796,18 @@ class Network(object):
         nsub = self.nsub
         outs, ins = self.out_e, self.in_e
         res = [array.array("d", bytes(8 * count)) for _ in ins]
+        if self.model:
+            els, reads, dt, T = self.out_el, self.in_read, h.dt, self.period_ms
+            for i in range(count):
+                for j, el in enumerate(els):
+                    el.command(cmd[j][i], T)
+                for _ in range(nsub):
+                    for el in els:
+                        el.pre(dt)
+                    fadvance()
+                for k, (read, noise) in enumerate(reads):
+                    res[k][i] = read() + (noise() if noise else 0.0)
+            return res
         icl = [(c, cmd[j]) for j, (k, c) in enumerate(outs) if k == "i"]
         vcl = [(c, cmd[j]) for j, (k, c) in enumerate(outs) if k == "v"]
         refs = [(r, res[j]) for j, (k, r) in enumerate(ins)]
@@ -636,12 +824,23 @@ class Network(object):
         return res
 
 
+def electrode_note(es):
+    """A few words for -n: the pipette model, if there is one."""
+    bits = []
+    for key, label, unit in (("re", "Re", "MOhm"), ("ce", "Ce", "pF"), ("rb", "bridge", "MOhm"), ("cn", "neutralisation", "pF"),
+                             ("rsc", "Rs comp", "%"), ("cpc", "Cp comp", "pF"), ("noise", "noise", "rms")):
+        if es[key] > 0:
+            bits.append("%s %g %s" % (label, es[key], unit))
+    return " [" + ", ".join(bits) + "]" if bits else ""
+
+
 def describe(net):
     cells = []
     for name, rec in net.cells.items():
-        cells.append(dict(name=name, model=rec["spec"].get("model") or rec["spec"].get("morphology"),
+        cells.append(dict(name=name, model=("same cell as " + rec["shared"]) if rec.get("shared") else
+                          (rec["spec"].get("model") or rec["spec"].get("morphology")),
                           sections=len(rec["sections"]), segments=sum(s.nseg for s in rec["sections"]),
-                          electrode=rec["loc"], v_rest_mV=round(float(rec["seg"].v), 3)))
+                          electrode=rec["loc"] + electrode_note(rec["es"]), v_rest_mV=round(float(rec["seg"].v), 3)))
     syns = [dict(name=s["name"], pre=s["pre"], post=s["post"], type=s["type"]) for s in net.syns]
     return cells, syns
 

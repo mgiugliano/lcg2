@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 (2026-11-18)
+
+- **Added: the pipette and the amplifier** on the NEURON backend (`[cell]` keys `electrode_resistance`,
+  `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`,
+  `cp_compensation`): a lumped electrode (Re, Ce) with the amplifier's bridge balance and capacitance neutralisation in
+  current clamp, series-resistance and pipette-capacitance compensation in voltage clamp, and reproducible white recording noise.
+  Defaults are an ideal electrode, and the results without the keys are unchanged to the last bit.
+- **Added: `same_as`**, a second electrode on an existing cell (dual recordings; a ground-truth monitor).
+- **Added:** `examples/student_kit/` `rig_electrode.ini`, `rig_aec.ini`, `aec_noise.sg`, `aec.py` (active electrode compensation,
+  Brette et al. 2008, offline), tutorial J in `docs/16`, four figures; 19 new checks (96 in the NEURON suite).
+
 ## 0.1.1 (2026-11-18)
 
 - **Fixed:** with a morphology file, the built-in `biophysics = hh_soma` (and the kit's `cell_tuning.py`) compared

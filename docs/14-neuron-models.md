@@ -1,7 +1,7 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
 > **Status: built (milestone M3b).** `device = neuron` works on the development Mac with NEURON 8.2.6
-> (Python 3.11). It is tested by `tests/test_neuron.py` (77 checks). It has **not** been run on Linux or
+> (Python 3.11). It is tested by `tests/test_neuron.py` (96 checks). It has **not** been run on Linux or
 > on any other NEURON version. The numerical result equals a plain NEURON script to 1e-9 mV (see
 > [How a trial is simulated](#how-a-trial-is-simulated)).
 
@@ -9,7 +9,7 @@
 stimulus files and the same configuration, except that the cells are virtual. You never write NEURON
 code, and you never run NEURON yourself: `lcg2` starts it, builds the cells that your configuration
 describes, plays your stimulus into them, and records what the electrodes would have measured. Hand a
-student the folder [`examples/student_kit/`](../examples/student_kit/) and tell them to train; the nine tutorials
+student the folder [`examples/student_kit/`](../examples/student_kit/) and tell them to train; the ten tutorials
 with figures are in [16 Tutorials with virtual cells](16-neuron-tutorials.md).
 
 ```text
@@ -93,7 +93,9 @@ electrode (voltage only).
 | `init` | a path to a `.py` or `.hoc` file, run after the cells are built and initialised (set states, shift the potential) |
 | `mechanisms` | a folder of `.mod` files; compiled once, automatically, into a cache (never into your folder) |
 | `electrode` | where the pipette sits: `soma(0.5)` (default), `dend[2](1)`, `apical(0.5)` ... |
-| `series_resistance` | voltage clamp only, MΩ (default 1, NEURON's own) |
+| `series_resistance` | voltage clamp only, MΩ (default 1, NEURON's own); `electrode_resistance`, when given, replaces it |
+| `same_as` | the cell of an earlier `[cell]`: a **second electrode on the same cell** (give it its own `electrode` and electrode keys) |
+| the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `cp_compensation`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
 | `d_lambda` | morphology only: the *d_lambda* rule for the number of segments (default 0.1; 0 keeps what the file gives) |
 | anything else | a **parameter of the model**: passed to your model, and an error if the model does not take it |
 
@@ -185,6 +187,44 @@ Speed: the 39-trial protocol of tutorial 9 (190 s of simulated time, one HH soma
 `-n` builds the cells too (about a second, more when `.mod` files must compile), so a mistake in a model
 file is found before any trial.
 
+## The pipette and the amplifier
+
+By default an electrode is **ideal**: the cell receives exactly the command and the recording is exactly the cell's
+potential. A real pipette is not, and the artefacts it adds are what you learn to correct on a real rig. Each
+`[cell]` can describe its pipette (the amplifier's settings belong to the same pipette):
+
+| Key | Unit | Default | Meaning |
+|:--|:--|:--|:--|
+| `electrode_resistance` | MΩ | 0 | the pipette's series resistance Re |
+| `electrode_capacitance` | pF | 0 | the pipette's capacitance to ground, Ce (Cp in voltage clamp) |
+| `recording_noise` | mV or pA, rms | 0 | white Gaussian noise added to every recorded value of this pipette (in the unit of the channel) |
+| `noise_seed` | integer | 1 | the noise is reproducible; the stream goes on from trial to trial |
+| `bridge_balance` | MΩ | 0 | current clamp: the amplifier subtracts Rb × I_cmd from the recording |
+| `cap_neutralization` | pF | 0 | current clamp: positive feedback that cancels part of Ce (must stay below `electrode_capacitance`) |
+| `rs_compensation` | percent | 0 | voltage clamp: the clamp adds `α Rs I` to its command (α below 100 %) |
+| `cp_compensation` | pF | 0 | voltage clamp: the recording subtracts `Cpc dV/dt` (the pipette capacitance transient) |
+
+![the electrode circuits](figures/fig-nrn-electrode-circuit.svg)
+
+**Current clamp.** The electrode is Re in series with the cell and Ce from its amplifier side to ground:
+`(Ce − Cn) dVn/dt = I_cmd − (Vn − Vm)/Re`. The cell receives `(Vn − Vm)/Re` (the capacitance diverts the fast part of
+the current) and the amplifier reports `Vn − Rb × I_cmd` plus noise. With `bridge_balance = electrode_resistance` the steady
+drop `Re × I` is removed exactly (a test checks that to 5 µV), but the capacitor still delays the electrode node, so
+the balance alone overshoots at every step; neutralising most of Ce with positive feedback shrinks that transient.
+**Voltage clamp.** The clamp's series resistance Rs (`electrode_resistance`, or `series_resistance`) separates the amplifier
+from the cell: the cell sees the command minus `Rs × I`, so large currents are poorly clamped and fast ones are slowed.
+`rs_compensation` is the usual positive feedback. The pipette capacitance Cp draws a transient `Cp dV/dt` at every
+command step; `cp_compensation` cancels it. Both compensations are *settings you choose*, like on an amplifier: too much
+is as bad as too little (the validity checks refuse a neutralisation at or above Ce and a compensation of 100 %).
+
+**Two electrodes on one cell.** `[cell V0]` with `same_as = P1` is a second pipette on the cell of `P1`: put its own
+`electrode` (another section, or the same soma) and its own electrode keys, and use `[out V0]`/`[in V0]` as for any pipette.
+It is how a dual recording is made, and how the tutorials get the true membrane potential, which a real experiment never has,
+to check what a compensation did.
+
+**Offline compensation.** [`examples/student_kit/aec.py`](../examples/student_kit/aec.py) implements active electrode
+compensation (Brette et al. 2008) on a recording: tutorial J.
+
 ## What is saved
 
 In the run folder (see [13 Data format](13-data-format.md)): `network.json` (the cells and synapses as they
@@ -206,6 +246,9 @@ file has `device = neuron` and `virtual_time = 1`.
 | `the NEURON adapter stopped ... (exit status N): <last lines of its log>; its messages are in .STEM/neuron.log` | NEURON or the model crashed; the end of the log says why, and the completed trials are kept (exit status 2) |
 | `the NEURON model produced a value that is not a number ... the model diverged` | an unstable model: shrink `sim_dt`, check the geometry and the channels |
 | `mechanisms: nrnivmodl failed` | a `.mod` file does not compile; the compiler's messages are in `neuron.log` |
+| `cap_neutralization (...) must stay below electrode_capacitance` / `rs_compensation must be below 100 percent` | an amplifier setting that would oscillate |
+| `electrode_resistance ... is too small for sim_dt` | the lumped electrode would be numerically unstable: use at least the Re it names, or a smaller `sim_dt` |
+| `same_as = 'X' must name a [cell] written EARLIER in the file` | a second electrode needs its cell defined first |
 
 You can also check a configuration **without lcg2**, which is handy when you write a model:
 
@@ -215,9 +258,13 @@ $ python3.11 neuron/lcg2_neuron.py --check examples/models/t1.ini
 
 ## Limits (what this does not do)
 
-* **One electrode per cell**, at one place. No electrode capacitance, no bridge balance, no seal; the only
-  electrode property is `series_resistance` in voltage clamp. No recording noise: the loopback simulator has
-  noise (`device = sim`), this one is deterministic.
+* **One electrode model**: a lumped pipette (Re, Ce), a first-order amplifier with the settings above; no seal
+  resistance, no liquid junction potential, no amplifier bandwidth limit, no whole-cell capacitance compensation
+  (Cm), no pipette capacitance on the voltage-clamp *cell* side beyond Cp. Noise is white, Gaussian, added to the
+  recording only (not to the injected current), with the same level at every sample rate. In voltage clamp the pipette
+  capacitance transient is spread over the one sample in which the command changes (the amplifier of a real rig is
+  band-limited instead). The simulation is stable only while Re × C(membrane under the electrode) exceeds `sim_dt`
+  (the program says so and gives the smallest Re).
 * **Not dynamic clamp.** The command is a recorded stimulus, fixed before the trial.
 * Digital outputs are not connected to anything (no cell has a digital input); they are recorded in the file as
   commanded, as with every backend.

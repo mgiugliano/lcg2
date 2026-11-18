@@ -1,8 +1,8 @@
 # LCG2 specification (working draft 5)
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
-2026-11-18, and its findings are applied here. Milestones M0 to M3 are built
-and tested (section 12); sections 4a to 4c record the choices made while building them. Items under "Decided" are the
+2026-11-18, and its findings are applied here. Milestones M0 to M4 are built
+and tested (section 12); sections 4a to 4d record the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
 
@@ -281,7 +281,6 @@ a key outside a section, a line over 999 characters: all errors, with
 - **Time**: virtual by default for `device = sim` (nothing waits; exact times; the progress line says
   "simulated time"); `-R` follows the clock.
 - **Devices**: `neuron` and board names are refused for now with a message that names the milestone.
-- **Before M4 a run writes no data file**; the sink only counts samples. The summary says so.
 
 **Choices made while building M3, which the owner may veto** (none was blocking):
 1. **`-R`** is the flag for real time, and **virtual time is the default** for the simulator.
@@ -294,7 +293,37 @@ a key outside a section, a line over 999 characters: all errors, with
 4. The **loopback noise seed is fixed** (it does not follow `-s`).
 5. **End of input at the Enter prompt aborts** the run.
 6. The **delay includes the start latency**.
-7. **No data file is written until M4.**
+
+### 4d. Recording and the run archive as built (M4)
+
+- **Files.** `[PREFIX_]YYYYMMDD_HHMMSS.h5` (local time) and the hidden folder `.STEM/`, claimed with an atomic
+  `mkdir` (`-2`, `-3` on a clash). The folder holds `config.ini`, `config_original.ini`, `command.txt`,
+  `stimulus.sg`, `canonical.sg` (not for protocols), `trials.json`, `provenance.json`, `files/NN_name`, `log.txt`
+  and `SHA256SUMS` (data file first; paths relative to the working folder, so `shasum -a 256 -c` works).
+- **Layout** of the HDF5 file: see `docs/13-data-format.md` (root attributes, string datasets, one group per trial,
+  `ai/`, `ao/`, `markers`, `info`). `float64`, chunked (8192), unlimited, no compression. `incomplete` is 1 when a
+  trial begins and 0 only when it ends complete; `H5Fflush` after every trial.
+- **Order and exit status.** Free-space check first (nothing created if short: exit 1); folder, file and log
+  before the backend is touched (failure: exit 1); whatever the engine does, the record is closed, digested and
+  finished; a failed integrity record or a failed final rest is exit 2, loudly.
+- **File format range.** `H5Pset_libver_bounds(fapl, H5F_LIBVER_V18, H5F_LIBVER_V110)`, macro `LCG2_LIBVER_LOW`.
+  Measured on HDF5 2.0.0: `SIGKILL` at random moments left 1 unreadable file in 120 with this range (0 in 164 with the
+  default); a full disk left the completed trials readable, only the failing trial may be damaged. The stricter
+  alternatives left unopenable files after a full disk. Read back with HDF5 1.10.7 on Ubuntu 22.04.
+- **Free space.** Estimate `samples*(inputs+commands)*8 + 128 KiB + 20 KiB per trial`; refused if free space is below
+  1.1 times the estimate plus 1 MB.
+- **Own SHA-256** (`lcg_sha256_*`; StimGen exports `sha256_hex`, so the names must differ).
+
+**Choices made while building M4, which the owner may veto:**
+1. File and folder names use **local time**; the attribute `started_utc` is UTC.
+2. Data are **float64, uncompressed**; an idle output has **no dataset**.
+3. A **failed integrity record is exit 2**, like a failed rest.
+4. Files read by a stimulus (`use`, `file()`) are found by a **best-effort scan** and copied to `files/`; StimGen's
+   own provenance does not list them (to report upstream).
+5. The **format range** 1.8 to 1.10, and the **free-space refusal** above.
+6. `convert_rate` is `null` in the provenance, with a note.
+
+Report upstream: StimGen leaks about 11 KB per rendered trial.
 
 ## 5. Hardware facts used (USB-6343 datasheet)
 
@@ -335,7 +364,7 @@ a key outside a section, a line over 999 characters: all errors, with
 - The file is flushed after every trial. `H5Fflush` does not guarantee a
   readable file after a crash; the guarantee is only "completed trials are
   normally readable".
-- Only calls available since HDF5 1.10 are used.
+- The file format is held between HDF5 1.8 and 1.10 (`H5Pset_libver_bounds`), see 4d.
 
 ## 8. Dependencies and pinning
 
@@ -343,10 +372,8 @@ a key outside a section, a line over 999 characters: all errors, with
   `../StimGen/src`) and checked against `STIMGEN_PIN` (commit and a SHA-256
   fingerprint of the library sources). Samples equal those of `sg render` on the
   same platform (StimGen reproducibility Level B).
-- HDF5: serial API. The Mac has Homebrew `hdf5-mpi` 2.2.0 (parallel): its
-  `hdf5.h` includes `mpi.h`, so on the Mac the build uses `mpicc`. A rig host
-  uses a serial HDF5 (`libhdf5-dev` on Linux). The HDF5 compiler choice is made
-  in M4, not before.
+- HDF5: serial API. The Makefile finds `h5cc` (on `PATH`, then the Homebrew kegs); a rig host
+  uses `libhdf5-dev` on Linux (its `h5cc`, verified on Ubuntu 22.04 with HDF5 1.10.7).
 - The Mac build uses a stub `NIDAQmx.h`; the real header only exists on the
   rig host (Windows or Linux, see 1).
 
@@ -435,7 +462,7 @@ How `device = neuron` works:
 | M2 **done** | StimGen integration: kind, expand, render trial, JSON trial list, channel map, unit check, volts, clip check of all trials, rest samples | samples equal `sg render` on this machine; trial order and seeds equal `sg expand`; a clipping trial is refused before anything plays |
 | M3 **done** | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
 | M3b | NEURON backend (section 11): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
-| M4 | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |
+| M4 **done** | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |
 | M5 | Multi-patch and loopback tests on the simulator (part of M3/M4, kept as a suite) | `make test` passes with no hardware |
 | **S1** | **Hardware spike** (on the rig host, throwaway C), moved here at the owner's request so that the simulator comes first; the reviewer advised doing it earlier, because the DAQmx backend design depends on its answers: clock and trigger routing, one task or two, last-sample hold, rate coercion, start and loopback latency, clocked DO line, trigger line | each item in section 10 is answered in writing; the backend design is fixed from the answers |
 | M6 | DAQmx backend from the S1 design, built on the Mac against the stub header, built on the rig host against the real one | compiles on both |

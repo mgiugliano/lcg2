@@ -74,6 +74,9 @@ void platform_local_stamp(char buf[20]);
  * safe way to claim a name: of two runs that start in the same second, one gets 1. */
 int platform_mkdir(const char *path);
 
+/* The bytes free for an ordinary user on the file system that holds `path`; -1 if unknown. */
+int64_t platform_free_bytes(const char *path);
+
 /* The current working folder; 0 on success. */
 int platform_getcwd(char *buf, size_t n);
 

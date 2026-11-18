@@ -76,7 +76,7 @@ in `sg` it is `--text`, while in LCG2 it is the record-only duration.
 |:--|:--|
 | stdout | the answer of `-h` and of `-n` (and `-n -v`) |
 | stderr | every error (`lcg2: ...`) and, later, progress |
-| files | data and the run folder (from M4) |
+| files | the data file and the run folder, in the current folder (M4; see [13 Data format](13-data-format.md)) |
 
 | Status | Meaning |
 |:--|:--|
@@ -97,5 +97,7 @@ $ ./lcg2 -c rig.ini -n -v stimulus.sg            # check, print the plan and the
 
 A run without `-n` reads the stimulus and does **all** the checks, and then plays the
 trials on the loopback simulator (`device = sim`). `device = neuron` is refused until
-milestone M3b, and a board name until the hardware backend (M6). No data file is written
-before M4.
+milestone M3b, and a board name until the hardware backend (M6). A run writes
+`[PREFIX_]YYYYMMDD_HHMMSS.h5` and the hidden folder `.[PREFIX_]YYYYMMDD_HHMMSS/` in the current folder
+(see [13 Data format](13-data-format.md)); before it creates anything it checks the free space (exit
+status 1, "nothing was written", if short). If the integrity record cannot be written the status is 2.

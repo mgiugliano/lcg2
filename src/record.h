@@ -53,6 +53,10 @@
  *       markers                [name, sample] pairs, if the stimulus has markers
  *       info                   the protocol's own record of this trial (JSON), if any
  *
+ * The file format is held between HDF5 1.8 and 1.10 (H5Pset_libver_bounds), whatever the
+ * version of the library that writes it, so that older readers can open it (a file
+ * written by HDF5 2.2 was opened by HDF5 1.10.7: see docs/13-data-format.md).
+ *
  * The inputs are float64 and not compressed.  Outputs the stimulus does not name
  * are idle and have no dataset (their rest value is in the configuration).
  *

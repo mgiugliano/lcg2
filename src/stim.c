@@ -188,6 +188,8 @@ void stim_free(Stim *st)
     free(st->digest);
     for (i = 0; i < st->nused; i++) { free(st->used_path[i]); free(st->used_sha[i]); }
     free(st->used_path); free(st->used_sha);
+    for (i = 0; i < st->nwarn; i++) { free(st->warn_text[i]); free(st->warn_first[i]); }
+    free(st->warn_text); free(st->warn_first); free(st->warn_count);
     memset(st, 0, sizeof *st);
 }
 
@@ -872,6 +874,30 @@ int stim_note_files(Stim *st, const Trial *t)
         if (!st->used_path[st->nused] || !st->used_sha[st->nused]) return -1;
         st->nused++;
     }
+    return 0;
+}
+
+int stim_note_warning(Stim *st, const Trial *t, const char *text)
+{
+    int k;
+    char **nt, **nf;
+    int *nc;
+    for (k = 0; k < st->nwarn; k++)
+        if (strcmp(st->warn_text[k], text) == 0) { st->warn_count[k]++; return 0; }
+    nt = (char **)realloc(st->warn_text, ((size_t)st->nwarn + 1) * sizeof *nt);
+    if (!nt) return -1;
+    st->warn_text = nt;
+    nf = (char **)realloc(st->warn_first, ((size_t)st->nwarn + 1) * sizeof *nf);
+    if (!nf) return -1;
+    st->warn_first = nf;
+    nc = (int *)realloc(st->warn_count, ((size_t)st->nwarn + 1) * sizeof *nc);
+    if (!nc) return -1;
+    st->warn_count = nc;
+    st->warn_text[st->nwarn] = xdup(text);
+    st->warn_first[st->nwarn] = xdup(t->info ? t->name : "");
+    if (!st->warn_text[st->nwarn] || !st->warn_first[st->nwarn]) return -1;
+    st->warn_count[st->nwarn] = 1;
+    st->nwarn++;
     return 0;
 }
 

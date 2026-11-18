@@ -32,6 +32,25 @@
 #include <hdf5.h>
 #include "record.h"
 
+/*
+ * The range of file formats the objects may use: from HDF5 1.8 to HDF5 1.10.  The upper
+ * bound is what makes the file readable by older readers (Ubuntu 22.04 ships 1.10.7); the
+ * lower one is what makes a file survive a full disk.  Measured (12 file-size limits, a
+ * 5-trial run each):
+ *
+ *     format range                       opens after a full disk    and keeps a complete trial
+ *     library default (no cap)                  11 of 12                   10 of 12
+ *     EARLIEST .. 1.10                           1 of 12                    1 of 12
+ *     1.8      .. 1.10   (this one)             11 of 12                   10 of 12
+ *     1.10     .. 1.10                           0 of 12                    0 of 12
+ *
+ * With the earlier formats, a failed write leaves a superblock that promises more file than
+ * there is ("truncated file"); with 1.10 only, the "open for write" flag is never cleared.
+ */
+#ifndef LCG2_LIBVER_LOW
+#define LCG2_LIBVER_LOW H5F_LIBVER_V18
+#endif
+
 #define CHUNK_SAMPLES 8192               /* a fixed chunk: not tied to the block size */
 #define WRITE_SLICE   65536              /* samples written at a time for a command    */
 
@@ -181,7 +200,7 @@ static int write_slice(hid_t dset, hid_t memtype, int64_t first, int64_t count, 
 int record_open(Recorder **out, const RecorderInit *in, Err *err)
 {
     Recorder *r = (Recorder *)calloc(1, sizeof *r);
-    hid_t g = -1;
+    hid_t g = -1, fapl;
     *out = NULL;
     if (!r) return err_set(err, "out of memory");
     H5Eset_auto2(H5E_DEFAULT, NULL, NULL);           /* HDF5 must not print on its own */
@@ -189,8 +208,24 @@ int record_open(Recorder **out, const RecorderInit *in, Err *err)
     r->cfg = in->cfg;
     r->group = r->ai_group = -1;
 
-    r->file = H5Fcreate(in->path, H5F_ACC_EXCL, H5P_DEFAULT, H5P_DEFAULT);   /* it must not exist */
-    if (r->file < 0) { hfail(err, in->path, "create", "the file"); free(r); return -1; }
+    /* The file format is capped at HDF5 1.10: the library that writes it may be newer (2.x
+     * here), but the readers of the owner (Ubuntu 22.04 ships 1.10.7, MATLAB and h5py bundle
+     * their own) must be able to open it.  See the table above for the lower bound. */
+    fapl = H5Pcreate(H5P_FILE_ACCESS);
+    if (fapl < 0 || H5Pset_libver_bounds(fapl, LCG2_LIBVER_LOW, H5F_LIBVER_V110) < 0) {
+        hfail(err, in->path, "set the file format", "of the file");
+        if (fapl >= 0) H5Pclose(fapl);
+        free(r);
+        return -1;
+    }
+    r->file = H5Fcreate(in->path, H5F_ACC_EXCL, H5P_DEFAULT, fapl);          /* it must not exist */
+    if (r->file < 0) {
+        hfail(err, in->path, "create", "the file");      /* before closing fapl: that clears HDF5's error stack */
+        H5Pclose(fapl);
+        free(r);
+        return -1;
+    }
+    H5Pclose(fapl);
     g = r->file;
 
     if (attr_str(g, "format", "lcg2-hdf5/1") < 0 || attr_str(g, "lcg2_version", in->lcg2_version) < 0 ||

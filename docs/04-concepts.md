@@ -2,7 +2,7 @@
 
 This page explains how LCG2 thinks. Read it once and the configuration file
 and the messages will make sense. Marks: **Built** (in the code and tested) and
-**Designed** (decided, not written yet).
+**Designed** (decided, not written yet); the recording and run archive (M4) are built.
 
 Contents: [Channels and names](#1-channels-and-names) ·
 [Units, gain, calibration](#2-units-gain-and-calibration) ·
@@ -244,7 +244,10 @@ seed, start time (UTC), delay and an `incomplete` flag are attributes. Datasets
 are extendable and the file is flushed after every trial, so a crashed run keeps
 its completed trials.
 
-**Designed (M4).** The layout is in `SPEC.md`, section 7.
+**Built (M4).** The exact layout, with a reader, is in [13 Data format](13-data-format.md)
+(and `SPEC.md`, section 4d). The stamp is local time; the folder is claimed with an atomic `mkdir`, so a run
+never overwrites another. The hidden folder also holds `provenance.json` and `SHA256SUMS`
+(`shasum -a 256 -c` checks it).
 
 ## 9. Backends: simulator and board
 
@@ -276,8 +279,8 @@ error message starts with `lcg2: `.
 waits, and the loop that reads the inputs, check it; the program then stops, drives every
 output to its rest value, and exits with status 2. The handler never does the work itself,
 because a signal can interrupt the program at any instant. A second Ctrl-C does not skip
-the rest step. When the HDF5 file exists (M4) the completed trials are closed in it and the
-running one is marked `incomplete`.
+the rest step. The completed trials are closed in the HDF5 file and the
+running one is marked `incomplete` (built, M4).
 
 **What cannot be caught.** `kill -9` (SIGKILL), a power cut or a crash end the program at
 once; nothing can run after them. A real board then keeps the last values it was given. That

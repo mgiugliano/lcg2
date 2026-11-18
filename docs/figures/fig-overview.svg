@@ -46,7 +46,7 @@
 <line x1="330" y1="425" x2="330" y2="480" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
 <line x1="470" y1="425" x2="470" y2="480" stroke="#111827" stroke-width="2" marker-end="url(#ah)"/>
 <line x1="630" y1="425" x2="630" y2="480" stroke="#111827" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ah)"/>
-<rect x="720" y="150" width="200" height="190" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<rect x="720" y="150" width="200" height="190" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
 <text x="820" y="167" font-size="14" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">Run archive   (M4)</text>
 <text x="820" y="211.25" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">YYYYMMDD_HHMMSS.h5</text>
 <text x="820" y="228.15" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">(trials, inputs, outputs)</text>

@@ -24,6 +24,7 @@
 #   make              check the StimGen pin, build ./lcg2 and the test tools
 #   make test         run the tests (needs python3)
 #   make check-pin    only compare the StimGen sources with STIMGEN_PIN
+#   make sanitize     build with AddressSanitizer and UBSan and run every suite against that
 #   make clean        remove the build folder and ./lcg2
 #
 # Variables you may set on the command line:
@@ -188,8 +189,11 @@ test: all
 	python3 tests/test_docs.py ./lcg2
 	python3 tests/check_clean.py
 
+sanitize:
+	bash tests/sanitize.sh
+
 clean:
 	@test -n "$(BUILD)" && test "$(BUILD)" != "/" && test "$(BUILD)" != "."
 	rm -rf $(BUILD) lcg2
 
-.PHONY: all tools stimgen-lib check-pin check-hdf5 test clean
+.PHONY: all tools stimgen-lib check-pin check-hdf5 test sanitize clean

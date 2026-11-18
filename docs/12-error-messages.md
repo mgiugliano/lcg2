@@ -157,12 +157,13 @@ Idle values of skipped outputs are not checked.
 | `aborted after N of M trial(s): outputs at rest` | Ctrl-C or kill; exit status 2 | the outputs were put at rest |
 | `warning: trial 0003: input P1: N samples beyond the range of 1 V (clamped)` | an input would exceed its range | raise the `range` of that `[in]`, or lower the stimulus |
 | `ERROR: the outputs may NOT be at rest: ...` | putting the outputs at rest failed (shown even with `-q`); exit status 2 | check the outputs by hand before touching anything |
+| `not enough free disk space for the data in the current folder: this run needs about X MB and Y MB are free (nothing was written)` | the free-space check: the run is expected to take more than is free, exit status 1 | free space, or shorten the run |
+| `ERROR: the integrity record (digests) could not be written: ...` (also `ERROR: the data file could not be closed properly: ...`), exit status 2 | the data file was written but its checksum list could not be: do not trust the folder until you have recomputed `SHA256SUMS` | check the disk, repeat the run |
 
 ## Not an error, but a note
 
 ```text
-lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; wrote 20261118_164908.h5 and .20261118_164908/
 ```
 
-The end of a successful run. Exit status 0. The inputs were measured and counted, and nothing is
-saved until milestone M4.
+The end of a successful run. Exit status 0. The two names are the data file and the run folder.

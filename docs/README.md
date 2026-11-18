@@ -7,12 +7,13 @@ inputs at the same time. It is a stripped-down successor of the LCG software,
 written in ISO C99, with no dynamic clamp and no real-time kernel.
 
 > **Where the project stands (read this first).**
-> Milestones M0 to M3 are built and tested: the program reads the command line
+> Milestones M0 to M4 are built and tested: the program reads the command line
 > and the configuration file, applies rig profiles, reads your stimulus through
 > StimGen, checks every sample, and **plays the trials on a built-in loopback
 > simulator**: with exact timing (period, gap, trigger), outputs held at rest
 > between trials and on every way out, Ctrl-C handled safely, and the inputs
-> streamed to a sink. **No data file is written yet** (HDF5 recording is M4), the
+> recorded: **each run writes an HDF5 data file and a hidden run folder** (M4, see
+> [13 Data format](13-data-format.md)). The
 > NEURON simulator is M3b, and the board is M6: those are designed and
 > documented here, but not written. Every page says
 > which parts are *built* and which are *designed*. The status of each piece is
@@ -30,6 +31,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | A user who wants to try it | [02 Quick start](02-quickstart.md), then [03 Tutorials](03-tutorials.md) |
 | A user writing a rig configuration | [06 Configuration reference](06-config-reference.md), then [04 Concepts](04-concepts.md) |
 | A user with an error message | [12 Error messages](12-error-messages.md) |
+| A user who wants to analyse a recording | [13 Data format](13-data-format.md) |
 | A developer who will extend the code | [10 Architecture](10-architecture.md), then `SPEC.md` |
 | An AI assistant picking up the work | [11 Notes for AI assistants](11-for-ai-agents.md) first, then [10 Architecture](10-architecture.md) |
 
@@ -49,6 +51,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | [10 Architecture](10-architecture.md) | the code: modules, data flow, tests, how to add a key |
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
+| [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
 
 ## Figures
 

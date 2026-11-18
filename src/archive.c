@@ -273,19 +273,18 @@ static void scan_uses(const char *text, void (*visit)(void *, const char *), voi
             continue;
         }
         if (word_at(text, i, "use") || word_at(text, i, "stimulus")) {
-            size_t j = i + (text[i] == 'u' ? 3 : 8), s;
+            size_t j = i + (text[i] == 'u' ? 3 : 8);
             while (text[j] == ' ' || text[j] == '\t') j++;
             if (text[j] == '"') {
                 char path[320];
                 size_t k = 0;
-                s = ++j;
+                j++;
                 while (text[j] && text[j] != '"' && text[j] != '\n' && k + 1 < sizeof path) path[k++] = text[j++];
                 path[k] = 0;
                 if (text[j] == '"' && k > 0) visit(ctx, path);
                 i = j;
                 continue;
             }
-            (void)s;
         }
         i++;
     }
@@ -386,6 +385,8 @@ int archive_finish(Archive *a, Err *err)
     for (k = 0; k < a->nitem; k++) fprintf(f, "%s  %s\n", a->item[k].sha, a->item[k].path);
     if (fclose(f) != 0) ok = 0;
     if (!ok) return err_set(err, "cannot finish writing '%s': %s", path, strerror(errno));
+    for (k = 0; k < a->nitem; k++)
+        archive_log(a, "sha256 %s  %s", a->item[k].sha, a->item[k].path);
     archive_log(a, "digests of %d items written to %s", a->nitem + 1, path);
     if (a->log) {
         if (fclose(a->log) != 0) { a->log = NULL; return err_set(err, "cannot finish writing the log: %s", strerror(errno)); }

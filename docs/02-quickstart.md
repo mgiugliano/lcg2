@@ -6,12 +6,15 @@ run*: LCG2 reads a configuration, checks it, and prints what it would do.
 > **Status.** What works today: the configuration is read and checked, the stimulus is
 > read **through StimGen**, rendered, mapped to the outputs and checked, and the trials
 > are **played on the built-in loopback simulator** (`-n` stops after the checks and prints
-> the plan). **No data file is written yet**: recording is milestone M4.
+> the plan). **A run writes an HDF5 data file and a hidden run folder** in the current folder (milestone M4;
+> see [13 Data format](13-data-format.md)).
 
 ## What you need
 
 - A C99 compiler (`cc`; any recent clang or gcc), and `make`.
-- `python3`, only to run the tests.
+- **HDF5** (the C library, to build `lcg2`): `brew install hdf5` on the Mac, `sudo apt install libhdf5-dev` on
+  Ubuntu. The Makefile finds `h5cc` and says what to install if it cannot.
+- `python3`, only to run the tests and the example reader; the tests also need `h5py` (`pip install h5py`).
 - The [StimGen 2](https://github.com/mgiugliano/StimGen2) sources, in a folder
   next to this one. The default is `../StimGen/src`; set `STIMGEN_SRC=...` if
   yours is elsewhere. LCG2 does not copy StimGen: it is compiled from there,
@@ -126,18 +129,23 @@ will store as "the configuration used".
 Without `-n`, LCG2 plays the trials:
 
 ```console
-$ ./lcg2 -c examples/single_pipette.ini examples/step.sg
-lcg2: running 1 trial(s) on the loopback simulator, in simulated time (-R follows the clock)
+$ mkdir -p ~/lcg2_data && cd ~/lcg2_data           # a real run writes its files in the current folder
+$ /path/to/lcg2 -c /path/to/examples/single_pipette.ini /path/to/examples/step.sg
+lcg2: running 1 trial(s) on the loopback simulator, in simulated time (-R follows the clock); writing 20261118_164908.h5
 lcg2: trial 1/1  stimulus  start 0.000 s  delay 0.000 s  (simulated time)
-lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; wrote 20261118_164908.h5 and .20261118_164908/
 ```
+
+(The stamp is the local time of your run.)
 
 - **simulated time**: nothing waits. A two-second trial takes an instant, and every time
   in the report is exact. Add `-R` to follow the real clock instead.
 - **the loopback**: each output is wired to the input of the same number (`ao0` to
   `ai0`), plus a little noise.
-- **no data file**: the inputs are measured and handed to a sink, which only counts them,
-  until milestone M4 writes the HDF5 file.
+- **the data**: `20261118_164908.h5` holds the command and the recording of every trial; the hidden
+  folder `.20261118_164908/` holds the configuration, the command, the stimulus, a log and checksums.
+  Look inside with `python3 examples/read_run.py 20261118_164908.h5` (needs `pip install h5py`), and check
+  nothing changed with `shasum -a 256 -c .20261118_164908/SHA256SUMS`. See [13 Data format](13-data-format.md).
 - **Ctrl-C** stops the run safely: the outputs go to their rest values first (see
   [Concepts](04-concepts.md)).
 

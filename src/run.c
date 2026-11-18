@@ -191,6 +191,14 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
     sb_addf(&b, "  \"trials\": %d,\n", ntrials);
     sb_addf(&b, "  \"clipping\": {\"samples_clipped\": 0, \"trials_checked\": %d, \"note\": \"every sample of every trial was checked against the limits before anything was played; a run with a sample that would clip is refused\"},\n",
             s->opt.has_duration ? 0 : s->report.ntrials);
+    sb_add(&b, "  \"warnings\": [");
+    for (k = 0; k < st->nwarn && !s->opt.has_duration; k++) {
+        sb_add(&b, k ? ",\n    {" : "\n    {");
+        sb_add(&b, "\"text\": "); sb_json(&b, st->warn_text[k]);
+        sb_add(&b, ", \"first_trial\": "); sb_json(&b, st->warn_first[k]);
+        sb_addf(&b, ", \"trials\": %d}", st->warn_count[k]);
+    }
+    sb_add(&b, st->nwarn && !s->opt.has_duration ? "\n  ],\n" : "],\n");
     sb_add(&b, "  \"convert_rate\": null,\n  \"convert_rate_note\": \"the loopback simulator has no multiplexed converter, so there is no convert rate\",\n");
     sha = archive_sha(a, "config.ini");
     sb_addf(&b, "  \"config_sha256\": \"%s\",\n", sha ? sha : "");
@@ -245,6 +253,7 @@ int run_execute(const RunParams *rp, Err *err)
     char *cmd = NULL, *cfgtext = NULL, *orig = NULL, *prov = NULL, cwd[512] = "", started[40], *canon = NULL;
     size_t origlen = 0;
     char cmdfile[1200];
+    int64_t estimated_bytes = 0, free_bytes = -1;
     Err e2;
 
     if (c->device == DEV_NEURON) {
@@ -285,6 +294,30 @@ int run_execute(const RunParams *rp, Err *err)
         ntrials = st->n;
     }
 
+    /* 0. Is there room?  The size of the data is known in advance: every input, and every command
+     * the stimulus names, for every sample of every trial, as 8-byte numbers, plus the structure
+     * of the file.  A disk that fills in the middle of a run can leave a file that cannot be
+     * opened (measured: docs/13-data-format.md), so refuse to start rather than hope. */
+    {
+        int act[CFG_MAX_IN], nin = 0, k, ncmd = 0;
+        int64_t samples = 0;
+        double need, margin;
+        int64_t freeb = platform_free_bytes(".");
+        for (k = 0; k < c->n_in; k++) nin += !c->in[k].skip;
+        if (o->has_duration) samples = job.idle_n;
+        else { samples = s->report.total_samples; ncmd = s->report.first.nch; }
+        (void)act;
+        need = (double)samples * (double)(nin + ncmd) * 8.0 + 131072.0 + 20480.0 * (double)ntrials;
+        margin = need * 1.10 + 1048576.0;
+        estimated_bytes = (int64_t)need;
+        if (freeb >= 0 && (double)freeb < margin) {
+            err_set(err, "not enough free disk space for the data in the current folder: this run needs about "
+                    "%.1f MB and %.1f MB are free (nothing was written)", need / 1048576.0, (double)freeb / 1048576.0);
+            return 1;
+        }
+        free_bytes = freeb;
+    }
+
     /* 1. Everything that can fail without touching an output: the folder, its files, the data file. */
     platform_getcwd(cwd, sizeof cwd);
     platform_format_utc(platform_wall_ns(), started);
@@ -306,9 +339,18 @@ int run_execute(const RunParams *rp, Err *err)
     archive_log(&ar, "folder: %s", cwd);
     archive_log(&ar, "device %s, mode %s, %d trial(s), %s%s", c->device_name, config_mode_name(c->mode), ntrials,
                 o->realtime ? "real time" : "simulated time", o->has_duration ? ", record only" : "");
+    archive_log(&ar, "disk  the data is expected to take about %lld bytes; %lld bytes free", (long long)estimated_bytes,
+                (long long)free_bytes);
 
     if (!o->has_duration) {
         int k;
+        for (k = 0; k < st->nwarn; k++) {                  /* StimGen's warnings from the check of every trial */
+            if (st->warn_first[k][0])
+                archive_log(&ar, "warning  %s  (%d trial%s, first in trial %s)", st->warn_text[k], st->warn_count[k],
+                            st->warn_count[k] == 1 ? "" : "s", st->warn_first[k]);
+            else
+                archive_log(&ar, "warning  %s", st->warn_text[k]);
+        }
         if (archive_put(&ar, "stimulus.sg", st->text, strlen(st->text), err) < 0) goto setup_failed;
         canon = stim_canonical(st);
         if (canon) { if (archive_put(&ar, "canonical.sg", canon, strlen(canon), err) < 0) goto setup_failed; }

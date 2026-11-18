@@ -11,17 +11,18 @@ on a data-acquisition board and records inputs. **Milestones M0 to M3 are built*
 line, INI configuration, profiles, the StimGen link (`stim.c`), and the **trial engine** with a
 built-in **loopback simulator**: a run plays the trials on `device = sim` with StimGen's timing rules,
 outputs held at rest between trials and on every way out, safe Ctrl-C, and the inputs streamed to a
-sink in physical units. **No data file is written yet** (the sink only counts): that is M4. The board
+sink in physical units, and **every run writes an HDF5 file and a hidden run folder** (M4:
+`record.c`, `archive.c`, `run.c`, `sha256.c`; format in `docs/13-data-format.md`). The board
 (NI USB-6343) is not supported by NI-DAQmx on Linux, so the **rig host is undecided** and hardware work
-is on hold. The next job is M4 (HDF5 recording and the run folder).
+is on hold. The next job is M3b (NEURON) or M5 (the test suite as a whole); ask the owner first.
 
 ## State at a glance
 
 | Item | State |
 |:--|:--|
 | Repository | <https://github.com/mgiugliano/lcg2> |
-| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback |
-| Next | **M4** HDF5 + run folder (a `Sink`), then M3b NEURON, M5 test suite |
+| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums |
+| Next | M3b NEURON, then M5 test suite (ask the owner before starting) |
 | On hold | S1 hardware spike, M6 DAQmx, M7 rig bring-up (host undecided) |
 | StimGen pin | StimGen2 `379434b` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
 | Tests | `make test`: unit tests, M1 table, M2 suite, M3 suite, doc commands; all must pass |
@@ -83,7 +84,12 @@ is on hold. The next job is M4 (HDF5 recording and the run folder).
   flag lists.
 - **macOS has no `timeout`.** Use Python's `subprocess` timeout.
 - **`sed -i` needs a suffix argument on macOS.** Prefer Python for edits.
-- **HDF5 on the Mac is `hdf5-mpi`:** its `hdf5.h` includes `mpi.h`, so build with `mpicc`.
+- **HDF5:** the Makefile finds `h5cc` (on `PATH`, then the Homebrew kegs) and `make` prints an install hint
+  if there is none (`libhdf5-dev` on Ubuntu provides it). Tests need `h5py`. The file format is held
+  between HDF5 1.8 and 1.10 on purpose (`LCG2_LIBVER_LOW`, see 13); do not change it without re-measuring.
+- **A real run writes a data file and a hidden folder in the current folder.** In tests, run in a scratch folder;
+  `tests/check_clean.py` fails if the repository is dirty. Run `make sanitize` (ASan/UBSan) after changes.
+- **Do not include `sg.h`; StimGen exports `sha256_hex`,** so LCG2's own digest functions are `lcg_sha256_*`.
 - **Linking in the Dropbox folder fails** with "Resource deadlock avoided" because Dropbox holds
   new files: build with `make BUILD=/some/folder/outside/Dropbox` and run `tests/test_stim.py`
   with `LCG2_BUILD` set to it (`make test BUILD=...` does both).
@@ -105,20 +111,15 @@ is on hold. The next job is M4 (HDF5 recording and the run folder).
   not call `sg_api_render_trial` yourself with an empty seed.
 - The shell hook may block `rm`; `make clean` works.
 
-## What M4 must do (summary of `SPEC.md` sections 3 and 7)
+## What M4 does (built; the design is in `SPEC.md` 3, 4d and 7)
 
-1. A `Sink` (`engine.h`: `begin`, `block`, `end`) that writes one HDF5 file per run, one group per
-   trial, extendable datasets filled as the blocks arrive, flushed after every trial; physical units; rate,
-   gains, calibration, seed, start time (`TrialRecord.start_utc`, to the millisecond, simulated in virtual
-   time), delay, latency, over-range counts and an `incomplete` flag as attributes.
-2. The hidden folder `.[PREFIX_]YYYYMMDD_HHMMSS/` with the resolved configuration (`config_dump`), the command
-   line, the stimulus text and the files it used (`Trial.file_path`, `file_sha`), the expanded trials, a log,
-   and the SHA-256 of the data file and of every input. Own SHA-256 (no dependency).
-3. `mkdir` and friends go into `platform.c`. On the Mac HDF5 is the parallel build: use `mpicc`; use only
-   calls available since HDF5 1.10; the choice of compiler is made here, not before.
-4. An aborted trial is kept and marked `incomplete`; a killed run keeps its completed trials.
-5. Tests: `h5py` reads a file back (`pip install h5py`); a killed run keeps its completed trials; the hidden
-   folder holds everything of SPEC 3.2.
+1. `record.c` is a `Sink` that writes one HDF5 file per run (layout in `docs/13-data-format.md`), flushed
+   after every trial, with the `incomplete` flag set at the start of a trial and cleared when it ends complete.
+2. `archive.c` makes the hidden folder (atomic `mkdir`), the line-by-line log and `SHA256SUMS`; `sha256.c` is
+   the own SHA-256; `run.c` orders it all (free-space check, folder, engine, close, digests) and sets the
+   exit status (2 if the integrity record or the final rest fails).
+3. `session.c` holds what `main.c` used to do (command line, configuration, checks); `main.c` is thin.
+4. Tests: `tests/test_record.py` (100 checks, h5py), `examples/read_run.py` is the reference reader.
 
 ## Useful commands
 

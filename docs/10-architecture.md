@@ -54,7 +54,7 @@ Options + Config ──check_plan──> OK / error
 text (file or -e) ──stim_open──> Stim ──stim_render (each trial)──> Trial
                     Trial + Config ──stim_map──> Map ──stim_check──> OK / refusal (every trial, before anything plays)
                     Trial + Map + Config ──stim_drive──> Drive      (volts and rest samples; for the backend, M3)
-all checks passed ──> print_plan  (-n)   or  "not implemented yet"
+all checks passed ──> print_plan  (-n)   or  run_execute: folder + HDF5 file + engine + digests
 ```
 
 - `Options` (`cli.h`): what the command line said. Values like the rate are
@@ -151,7 +151,7 @@ build with an `#error` (the machine that will have the board is not decided). It
 
 A backend has five operations. `play()` runs one trial: it writes the outputs of a `Drive`, measures the
 inputs, and hands them over **in blocks of about 0.1 s** through a callback, as volts. The streaming is
-deliberate: M4's recording grows on disk as it arrives, the completed part of an aborted trial is kept,
+deliberate: the recording (record.c) grows on disk as it arrives, the completed part of an aborted trial is kept,
 and a long record-only run never holds its whole record in memory. The interface is **provisional**: the
 hardware spike may change it.
 
@@ -238,9 +238,8 @@ and a comparison of the rate and duration parsers with StimGen's own.
 
 | Milestone | Where it goes |
 |:--|:--|
-| M4 recording | a `Sink` (`begin`, `block`, `end`) that writes the HDF5 file as blocks arrive; the main program's counting sink is replaced by it; `platform.c` gains `mkdir` for the hidden folder; the start time of a trial is already `TrialRecord.start_utc` (to the millisecond) |
+| M4 recording (built) | `record.c` is the `Sink` that writes the HDF5 file as blocks arrive; `archive.c` the hidden folder, log and checksums; `run.c` the order of events; `session.c` what `main.c` did before; `sha256.c`; `platform.c` gained `mkdir`, free space, local stamp |
 | M3b NEURON | `backend_neuron.c` (child process and pipes, POSIX only) and `lcg2_neuron.py` |
-| (M4 continued) | `archive.c` for the hidden folder, the log and the SHA-256; on the Mac HDF5 is the parallel build, so use `mpicc` |
 | M6 DAQmx | `backend_daqmx.c`; the Mac build uses a stub `NIDAQmx.h` |
 
 ## Style

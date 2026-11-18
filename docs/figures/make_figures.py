@@ -119,7 +119,7 @@ def overview():
     s.arrow(630, 425, 630, 480, dash=True)
     # output
     s.box(720, 150, 200, 190, "YYYYMMDD_HHMMSS.h5\n(trials, inputs, outputs)\n\n.YYYYMMDD_HHMMSS/\nconfig, command, stimulus,\ntrials, log, SHA-256",
-          "plan", title="Run archive   (M4)")
+          "built", title="Run archive   (M4)")
     s.arrow(660, 245, 720, 245)
     for y in (100, 210, 320):
         s.arrow(230, y, 270, y)
@@ -238,7 +238,7 @@ def timeline():
     s.text(20, 335, "time", size=12, anchor="start")
     s.text(470, 385, "Between trials the outputs hold their rest value (dashed line); nothing is recorded.", size=13)
     s.text(470, 407, "A trial that cannot start on time (previous one still running, USB start-up) starts as soon as it can;", size=13)
-    s.text(470, 427, "the real start time and delay of every trial are recorded and printed.  (Built, M3; the data file is M4.)",
+    s.text(470, 427, "the real start time and delay of every trial are recorded and printed.  (Built, M3; recorded in the data file since M4.)",
            size=13, fill=GREY)
     s.save("fig-timeline.svg", "Trial timing",
            "Two timing modes of a protocol. With period, trials start at fixed intervals; with gap, each trial starts a fixed "
@@ -280,7 +280,7 @@ def milestones():
         ("M2", "StimGen integration,\nunits, clip check", "built"),
         ("M3", "trial engine,\nloopback simulator", "built"),
         ("M3b", "NEURON backend\n(virtual cells)", "plan"),
-        ("M4", "HDF5 + run folder,\nlog, checksums", "plan"),
+        ("M4", "HDF5 + run folder,\nlog, checksums", "built"),
         ("M5", "simulator test\nsuite", "plan"),
     ]
     x = 15
@@ -301,7 +301,7 @@ def milestones():
 
 def stimgen_flow():
     s = Svg(940, 400)
-    s.text(470, 24, "How a protocol becomes trials (StimGen 2) and then a run (LCG2): built up to the backend", size=17, weight="bold")
+    s.text(470, 24, "How a protocol becomes trials (StimGen 2) and then a run (LCG2): built, M0 to M4", size=17, weight="bold")
     s.box(20, 60, 190, 80, "sweep amp = -300..300pA\nrepeat 3, order shuffled\nperiod 5s", "blue", size=12, title="protocol text")
     s.box(250, 60, 190, 80, "ordered list of trials,\neach with condition,\nseed, timing", "built", size=12, title="sg_api_expand")
     s.box(480, 60, 200, 80, "one trial at a time:\nsamples of every channel\nin pA / mV / 0-1", "built", size=12, title="sg_api_render_trial")
@@ -312,8 +312,8 @@ def stimgen_flow():
            size=13)
     s.box(20, 215, 210, 80, "trial 1, 2, 3 ... N\none after the other,\nrendered again when needed", "built", size=12, title="engine (M3)")
     s.box(270, 215, 210, 80, "write outputs, read inputs,\nrest values in between", "built", size=12, title="backend (loopback)")
-    s.box(520, 215, 190, 80, "block per trial,\nflushed after each", "plan", size=12, title="HDF5 writer (M4)")
-    s.box(750, 215, 170, 80, "config, command,\nstimulus, trials,\nlog, SHA-256", "plan", size=12, title="hidden folder")
+    s.box(520, 215, 190, 80, "block per trial,\nflushed after each", "built", size=12, title="HDF5 writer (M4)")
+    s.box(750, 215, 170, 80, "config, command,\nstimulus, trials,\nlog, SHA-256", "built", size=12, title="hidden folder")
     for a, b in ((230, 270), (480, 520), (710, 750)):
         s.arrow(a, 255, b, 255)
     s.text(470, 335, "Rendering is deterministic: the same text, rate and seed give the same samples on a given platform (StimGen reproducibility level B).",

@@ -8,8 +8,10 @@ folder of the project.
 > **Status.** Most tutorials use the dry run `-n`, which since milestone M2 **reads your stimulus
 > through StimGen**, renders every trial, checks the units and every sample, exactly as a
 > real run does before it plays anything. Since M3 a run **plays the trials on the built-in
-> loopback simulator** (Tutorials 9 and 11). What is still designed, not built, is the data
-> file (M4): a run writes none yet.
+> loopback simulator** (Tutorials 9 and 11), and since M4 **every such run writes an HDF5 file and a
+> hidden run folder in the current folder** (see [13 Data format](13-data-format.md)). The examples below run
+> from the project folder for brevity, so the files land there (git ignores them); in real use, `cd` into a
+> data folder first and give the full path to `lcg2`.
 
 Contents: [1 One pipette](#tutorial-1-one-pipette-in-current-clamp) ·
 [2 Voltage clamp](#tutorial-2-the-same-rig-in-voltage-clamp) ·
@@ -425,7 +427,7 @@ lcg2: trial 2/39  0001  amp=100pA  start 5.000 s  delay 0.000 s  (simulated time
 lcg2: trial 3/39  0002  amp=300pA  start 10.000 s  delay 0.000 s  (simulated time)
 ...
 lcg2: trial 39/39  0038  amp=50pA  start 190.000 s  delay 0.000 s  (simulated time)
-lcg2: done: 39 trial(s) in 192.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+lcg2: done: 39 trial(s) in 192.000 s (simulated), largest delay 0.000 s; wrote 20261118_164908.h5 and .20261118_164908/
 ```
 
 Each line is one trial: its number, its name, the values of the protocol's variables
@@ -434,16 +436,13 @@ start 5 s apart, and the whole run is 192 simulated seconds (190 s to the last s
 2 s). It took a moment of real time, because simulated time does not wait. `-R` makes it
 follow the clock.
 
-> **Designed, not built (M4).** The data file. A run will write `YYYYMMDD_HHMMSS.h5` and a hidden
-> folder `.YYYYMMDD_HHMMSS/` (the file names inside are provisional):
+> **Built (M4): the data file.** The run wrote `YYYYMMDD_HHMMSS.h5` (one group per trial) and a hidden
+> folder `.YYYYMMDD_HHMMSS/` in the folder you ran it from: the resolved configuration, the command, the
+> stimulus, the trials with their seeds, a log and `SHA256SUMS`. Run real runs from a data folder, not from
+> the project folder. [13 Data format](13-data-format.md) describes every item; to look at the recording:
 >
-> ```text
-> .20261118_142100/
->     config.ini        the resolved configuration, as in -n -v
->     command.txt       the exact command line
->     stimulus.sg       the stimulus text as given, and files it used
->     trials.json       expanded trials, with seeds
->     log.txt           trial starts, delays, warnings, SHA-256 of everything
+> ```console
+> $ python3 examples/read_run.py 20261118_164908.h5
 > ```
 
 **Ctrl-C** stops a run safely. LCG2 stops, drives every output to its rest value, and exits with
@@ -466,7 +465,7 @@ $ ./lcg2 -c examples/lcg2.ini -t 30s
 
 ```text
 lcg2: trial 1/1  record  start 0.000 s  delay 0.000 s  (simulated time)
-lcg2: done: 1 trial(s) in 30.000 s (simulated), largest delay 0.000 s; no data file was written: recording is milestone M4
+lcg2: done: 1 trial(s) in 30.000 s (simulated), largest delay 0.000 s; wrote 20261118_164908.h5 and .20261118_164908/
 ```
 
 ---

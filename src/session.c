@@ -152,6 +152,7 @@ static int check_stimulus(Session *s, Err *err)
         }
         for (k = 0; k < t.nwarn; k++) {
             report->nwarn++;
+            if (stim_note_warning(stim, &t, t.warn[k]) < 0) { trial_free(&t); return err_set(err, "out of memory"); }
             if (!o->quiet)
                 fprintf(stderr, "lcg2: warning: %s%s%s: %s\n", stim->source,
                         t.info ? " trial " : "", t.info ? t.name : "", t.warn[k]);

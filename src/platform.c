@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -114,6 +115,13 @@ int platform_mkdir(const char *path)
 {
     if (mkdir(path, 0777) == 0) return 0;
     return errno == EEXIST ? 1 : -1;
+}
+
+int64_t platform_free_bytes(const char *path)
+{
+    struct statvfs v;
+    if (statvfs(path, &v) != 0) return -1;
+    return (int64_t)v.f_bavail * (int64_t)v.f_frsize;
 }
 
 int platform_getcwd(char *buf, size_t n)

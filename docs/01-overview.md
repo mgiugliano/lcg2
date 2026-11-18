@@ -48,7 +48,7 @@ project contributed ideas (the INI file, the run folder), not code.
 ## Design principles
 
 - **Small and readable.** ISO C99, no dependencies beyond the standard library,
-  inih (bundled), and later HDF5. Every function has a comment that says why.
+  inih (bundled) and HDF5 (to build `lcg2`). Every function has a comment that says why.
 - **Nothing silent.** A value that would exceed a limit is an error, never
   quietly clipped. A rate the board cannot produce exactly is refused.
 - **Reproducible.** Every run stores the exact configuration (with the profile
@@ -73,7 +73,7 @@ project contributed ideas (the INI file, the run folder), not code.
 | Trial engine: timing rules, rest values, Ctrl-C, streaming of the inputs | **Built** (M3) |
 | Built-in loopback simulator (`device = sim`) | **Built** (M3) |
 | NEURON simulator backend with virtual cells and synapses | **Designed** (M3b) |
-| HDF5 recording and the run folder | **Designed** (M4) |
+| HDF5 recording and the run folder | **Built** (M4) |
 | NI-DAQmx backend for the USB-6343 | **Designed**, on hold (host undecided) |
 
 ![Milestones](figures/fig-milestones.svg)

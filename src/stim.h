@@ -127,7 +127,15 @@ typedef struct {
     int        have_digest;
     int        nused;            /* the files that file() read, in any trial     */
     char     **used_path, **used_sha;
+    int        nwarn;            /* StimGen's warnings, each text once            */
+    char     **warn_text;
+    char     **warn_first;       /* the trial it was first seen in ("" for a plain stimulus) */
+    int       *warn_count;       /* in how many trials                            */
 } Stim;
+
+/* Remember a warning of StimGen from the check pass (the same text of many trials is kept
+ * once, with its count), so that it can go into the log and the provenance record. */
+int stim_note_warning(Stim *st, const Trial *t, const char *text);
 
 /* Add the files of a rendered trial to the stimulus's list (each path and digest once). */
 int  stim_note_files(Stim *st, const Trial *t);

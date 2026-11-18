@@ -39,8 +39,8 @@ lcg2: the stimulus has a channel 'P2', but [out P2] is skipped in this configura
 (exit status 1)
 
 $ ./lcg2 -c examples/lcg2.ini examples/step.sg
-lcg2: running 1 trial(s) on the loopback simulator, in simulated time (-R follows the clock); writing 20261118_162106.h5
+lcg2: running 1 trial(s) on the loopback simulator, in simulated time (-R follows the clock); writing 20261118_165045.h5
 lcg2: trial 1/1  stimulus  start 0.000 s  delay 0.000 s  (simulated time)
-lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; wrote 20261118_162106.h5 and .20261118_162106/
+lcg2: done: 1 trial(s) in 2.000 s (simulated), largest delay 0.000 s; wrote 20261118_165045.h5 and .20261118_165045/
 (exit status 0)
 

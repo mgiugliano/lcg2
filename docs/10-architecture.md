@@ -234,6 +234,8 @@ and a comparison of the rate and duration parsers with StimGen's own.
 3. Check its combinations at the end of `cli_parse`.
 4. Add cases to the test table, and document it in [05](05-cli-reference.md).
 
+Tests: see [15 Testing](15-testing.md).
+
 ## Where the designed parts plug in
 
 | Milestone | Where it goes |

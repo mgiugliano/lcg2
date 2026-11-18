@@ -14,15 +14,15 @@ outputs held at rest between trials and on every way out, safe Ctrl-C, and the i
 sink in physical units, and **every run writes an HDF5 file and a hidden run folder** (M4:
 `record.c`, `archive.c`, `run.c`, `sha256.c`; format in `docs/13-data-format.md`). The board
 (NI USB-6343) is not supported by NI-DAQmx on Linux, so the **rig host is undecided** and hardware work
-is on hold. M3b (the NEURON backend, `device = neuron`) is built too. The next job is M5 (the test suite as a whole) or hardware (on hold); ask the owner first.
+is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) are built too. The software is complete up to the board: the next jobs are hardware (on hold until the rig host is decided), documentation polish for v0.1 (M8), or whatever the owner picks; ask first.
 
 ## State at a glance
 
 | Item | State |
 |:--|:--|
 | Repository | <https://github.com/mgiugliano/lcg2> |
-| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums; M3b NEURON backend (`backend_neuron.c`, `neuron/lcg2_neuron.py`) |
-| Next | M5 test suite as a whole (ask the owner before starting) |
+| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums; M3b NEURON backend (`backend_neuron.c`, `neuron/lcg2_neuron.py`); M5 suite (`tests/test_multipatch.py`) |
+| Next | M8 polish, or hardware once the host is decided (ask the owner first) |
 | On hold | S1 hardware spike, M6 DAQmx, M7 rig bring-up (host undecided) |
 | StimGen pin | StimGen2 `379434b` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
 | Tests | `make test`: unit tests, M1 table, M2 suite, M3 suite, doc commands; all must pass |

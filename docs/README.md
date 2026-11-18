@@ -7,7 +7,7 @@ inputs at the same time. It is a stripped-down successor of the LCG software,
 written in ISO C99, with no dynamic clamp and no real-time kernel.
 
 > **Where the project stands (read this first).**
-> Milestones M0 to M4 and M3b are built and tested: the program reads the command line
+> Milestones M0 to M4, M3b and M5 are built and tested: the program reads the command line
 > and the configuration file, applies rig profiles, reads your stimulus through
 > StimGen, checks every sample, and **plays the trials on a built-in loopback
 > simulator**: with exact timing (period, gap, trigger), outputs held at rest
@@ -53,6 +53,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
 | [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
+| [15 Testing](15-testing.md) | what `make test` proves, what each suite needs, what is not tested |
 | [14 Virtual cells](14-neuron-models.md) | `device = neuron`: describe cells and synapses in the configuration, bring your own models, train in patching |
 
 ## Figures

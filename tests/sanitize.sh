@@ -49,4 +49,5 @@ LCG2_BUILD=$A LCG2_BIN=$A/lcg2 python3 tests/test_stim.py 2>&1 | tail -1
 LCG2_BUILD=$A LCG2_BIN=$A/lcg2 python3 tests/test_engine.py 2>&1 | tail -1
 LCG2_BUILD=$A LCG2_BIN=$A/lcg2 python3 tests/test_record.py 2>&1 | tail -1
 LCG2_BUILD=$A LCG2_BIN=$A/lcg2 python3 tests/test_neuron.py 2>&1 | tail -1
+LCG2_BUILD=$A LCG2_BIN=$A/lcg2 python3 tests/test_multipatch.py 2>&1 | tail -1
 python3 tests/check_clean.py | tail -1

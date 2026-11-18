@@ -1,7 +1,7 @@
 # LCG2 specification (working draft 5)
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
-2026-11-18, and its findings are applied here. Milestones M0 to M4 and M3b are built
+2026-11-18, and its findings are applied here. Milestones M0 to M5 (with M3b) are built
 and tested (section 12); sections 4a to 4e record the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
@@ -515,7 +515,7 @@ How `device = neuron` works:
 | M3 **done** | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
 | M3b **done** | NEURON backend (section 11, as built in 4e): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
 | M4 **done** | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |
-| M5 | Multi-patch and loopback tests on the simulator (part of M3/M4, kept as a suite) | `make test` passes with no hardware |
+| M5 **done** | Multi-patch and loopback tests on the simulator (part of M3/M4, kept as a suite): `tests/test_multipatch.py`, see docs/15 | `make test` passes with no hardware |
 | **S1** | **Hardware spike** (on the rig host, throwaway C), moved here at the owner's request so that the simulator comes first; the reviewer advised doing it earlier, because the DAQmx backend design depends on its answers: clock and trigger routing, one task or two, last-sample hold, rate coercion, start and loopback latency, clocked DO line, trigger line | each item in section 10 is answered in writing; the backend design is fixed from the answers |
 | M6 | DAQmx backend from the S1 design, built on the Mac against the stub header, built on the rig host against the real one | compiles on both |
 | M7 | Bring-up on the rig: loopback, long run, scope test of the outputs on Ctrl-C, kill and USB unplug | numbers recorded; outputs observed at rest on the scope in all three cases |

@@ -191,6 +191,7 @@ test: all
 	LCG2_BUILD=$(BUILD) python3 tests/test_engine.py
 	LCG2_BUILD=$(BUILD) python3 tests/test_record.py
 	LCG2_BUILD=$(BUILD) python3 tests/test_neuron.py
+	LCG2_BUILD=$(BUILD) python3 tests/test_multipatch.py
 	python3 tests/test_docs.py ./lcg2
 	python3 tests/check_clean.py
 

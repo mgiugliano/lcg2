@@ -6,7 +6,7 @@ the analog and digital outputs of an acquisition board and records the analog
 inputs at the same time. It is a stripped-down successor of the LCG software
 (J Neurosci Methods): no dynamic clamp, no Comedi, no real-time kernel.
 
-> **Status: early.** Milestones M0 to M4 and M3b are built and tested: the program reads the
+> **Status: early.** Milestones M0 to M5 (including M3b) are built and tested; `make test` needs no hardware ([`docs/15-testing.md`](docs/15-testing.md)): the program reads the
 > command line and the configuration file, reads the stimulus through StimGen,
 > checks every sample, and **plays the trials on a built-in loopback simulator** with
 > exact timing and safe handling of Ctrl-C. Milestone M4 is built too: **every run writes an HDF5

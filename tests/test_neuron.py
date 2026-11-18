@@ -61,7 +61,7 @@ def find_python():
     return None
 
 
-PY = find_python()
+PY = None if os.environ.get("LCG2_NO_NEURON") else find_python()
 if PY is None:
     print("SKIPPED  device = neuron: no Python with both NEURON and h5py was found.\n"
           "         Install them (pip install neuron h5py) or set LCG2_NEURON_PYTHON.  Nothing of M3b was tested.")

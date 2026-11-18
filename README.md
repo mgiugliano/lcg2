@@ -1,7 +1,7 @@
 # LCG2
 
 A minimal command-line program for cellular electrophysiology, written in ISO
-C99. It plays a [StimGen 2](https://github.com/mgiugliano/StimGen) stimulus on
+C99. It plays a [StimGen 2](https://github.com/mgiugliano/StimGen2) stimulus on
 the analog and digital outputs of an acquisition board and records the analog
 inputs at the same time. It is a stripped-down successor of the LCG software
 (J Neurosci Methods): no dynamic clamp, no Comedi, no real-time kernel.

@@ -114,7 +114,6 @@ $ make check-pin                    # compare StimGen with the pin
 
 ## Unfinished business a new assistant should know
 
-- StimGen's `parse_rate` accepts malformed exponents (`1ee3Hz` reads as 1 Hz). The
-  owner is fixing it; after that, update `STIMGEN_PIN`.
+- StimGen's `parse_rate` bug (malformed exponents) was fixed in StimGen2 `379434b`, and the pin was updated.
 - The earlier Python prototype (`lcg2.py`, `config.example.toml`) is superseded.
 - The hardware decision (Windows or PCIe) controls S1, M6 and M7.

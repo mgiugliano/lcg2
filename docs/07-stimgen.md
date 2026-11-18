@@ -1,6 +1,6 @@
 # 7. StimGen and LCG2
 
-[StimGen 2](https://github.com/mgiugliano/StimGen) is a separate project: a
+[StimGen 2](https://github.com/mgiugliano/StimGen2) is a separate project: a
 language and a reference renderer for electrophysiology stimuli. LCG2 does not
 re-implement it. LCG2 **calls the StimGen C library** to turn the text of a
 stimulus or protocol into samples.
@@ -111,9 +111,13 @@ then re-run `make test` in LCG2, and write the new hash and commit into
 
 ## A note found while building
 
-StimGen's rate parser accepted malformed exponents as if they were valid
-(`1ee3Hz`, `1e+Hz` and `1eHz` all read as 1 Hz). LCG2 refuses them. The fix belongs to
-StimGen (the owner is making it); once it lands, update the pin.
+StimGen's rate parser used to accept malformed exponents as if they were valid
+(`1ee3Hz`, `1e+Hz` and `1eHz` all read as 1 Hz). LCG2 found this while comparing
+its own parser with StimGen's, and it was fixed in StimGen2 commit `379434b`
+("Reject malformed exponents in decimal literals"). `STIMGEN_PIN` now points to
+that commit. LCG2 still keeps its own, stricter parser for `-r` and `-t`, and the
+two agree on every spelling tried, apart from a few documented differences (a zero
+duration; extra decimals).
 
 ## The language in one page
 

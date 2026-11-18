@@ -11,7 +11,7 @@ run*: LCG2 reads a configuration, checks it, and prints what it would do.
 
 - A C99 compiler (`cc`; any recent clang or gcc), and `make`.
 - `python3`, only to run the tests.
-- The [StimGen 2](https://github.com/mgiugliano/StimGen) sources, in a folder
+- The [StimGen 2](https://github.com/mgiugliano/StimGen2) sources, in a folder
   next to this one. The default is `../StimGen/src`; set `STIMGEN_SRC=...` if
   yours is elsewhere. LCG2 does not copy StimGen: it is compiled from there,
   after a check that it is the pinned version (see below).

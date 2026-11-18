@@ -1,7 +1,7 @@
 # LCG2 documentation
 
 LCG2 is a small command-line program for cellular electrophysiology. It plays
-a stimulus written in [StimGen 2](https://github.com/mgiugliano/StimGen) on the
+a stimulus written in [StimGen 2](https://github.com/mgiugliano/StimGen2) on the
 analog and digital outputs of an acquisition board, and records the analog
 inputs at the same time. It is a stripped-down successor of the LCG software,
 written in ISO C99, with no dynamic clamp and no real-time kernel.

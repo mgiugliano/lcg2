@@ -3,16 +3,19 @@
 # the directory STIMGEN_SRC (default ../StimGen/src) and checks them against
 # the fingerprint below, so a different StimGen is noticed, not silently used.
 
-commit      = 13d2abf598a2cbff72d10aa513d94ffaa2ca4a6a
+commit      = 379434b2e07208c5ffa9812d17dd821f64c8cdbf
 sg_version  = 0.2
 date_pinned = 2026-11-18
 
 # SHA-256 of the concatenation, in this order, of:
 #   util.c help.c render.c rng.c parse.c prims.c eval.c protocol.c sgb.c sg_api.c sg.h
 # (command: cd $STIMGEN_SRC && cat <those files> | shasum -a 256)
-sources_sha256 = d49869cc9679fced9b15619602b2de21fc5ec996fb0233e02bd78c2b9b8b5998
+sources_sha256 = 4fc8f2a540a35742bb873598adfac99123b1ff4c58b405a09512276833339c60
 
-# Note: the commit was read from .git/HEAD only; `git log` and `git status` of
-# the StimGen folder failed on a Dropbox read lock when it was pinned, so it is
-# not verified that the working tree equals that commit. The fingerprint above
-# describes the files actually compiled.
+# History:
+#   2026-11-18  13d2abf  first pin
+#   2026-11-18  379434b  "Reject malformed exponents in decimal literals"
+#               (fix of parse_rate found while building LCG2). Verified against
+#               GitHub: the library sources of that commit in
+#               github.com/mgiugliano/StimGen2 are byte-identical to the ones
+#               fingerprinted above.

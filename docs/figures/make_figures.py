@@ -102,8 +102,8 @@ def overview():
     s.text(465, 68, "lcg2 (a C99 program)", size=14, weight="bold")
     s.box(290, 85, 350, 70, "command line, INI, profiles, units, checks\ncli.c  config.c  units.c  main.c",
           "built", title="1  Read and check   (M0, M1)")
-    s.box(290, 175, 350, 70, "turns each trial into samples, checks units and clipping\nonly sg_api_* functions of StimGen 2",
-          "plan", title="2  Render with StimGen   (M2)")
+    s.box(290, 175, 350, 70, "trials as samples, units and every sample checked\nonly sg_api_* of StimGen 2 (stim.c, json.c)",
+          "built", title="2  Render with StimGen   (M2)")
     s.box(290, 265, 350, 70, "schedule, rest values, delays, Ctrl-C = outputs to rest",
           "plan", title="3  Trial engine   (M3)")
     s.box(290, 355, 350, 70, "one interface: write outputs, read inputs",
@@ -277,7 +277,7 @@ def milestones():
     rows = [
         ("M0", "skeleton, Makefile,\nStimGen pin, inih", "built"),
         ("M1", "config, profiles,\nCLI, -n dry run", "built"),
-        ("M2", "StimGen integration,\nunits, clip check", "plan"),
+        ("M2", "StimGen integration,\nunits, clip check", "built"),
         ("M3", "trial engine,\nloopback simulator", "plan"),
         ("M3b", "NEURON backend\n(virtual cells)", "plan"),
         ("M4", "HDF5 + run folder,\nlog, checksums", "plan"),
@@ -301,11 +301,11 @@ def milestones():
 
 def stimgen_flow():
     s = Svg(940, 400)
-    s.text(470, 24, "How a protocol becomes trials (StimGen 2) and then a run (LCG2, from M2)", size=17, weight="bold")
+    s.text(470, 24, "How a protocol becomes trials (StimGen 2, built) and then a run (LCG2, M3 onwards)", size=17, weight="bold")
     s.box(20, 60, 190, 80, "sweep amp = -300..300pA\nrepeat 3, order shuffled\nperiod 5s", "blue", size=12, title="protocol text")
-    s.box(250, 60, 190, 80, "ordered list of trials,\neach with condition,\nseed, timing", "plan", size=12, title="sg_api_expand")
-    s.box(480, 60, 200, 80, "one trial at a time:\nsamples of every channel\nin pA / mV / 0-1", "plan", size=12, title="sg_api_render_trial")
-    s.box(720, 60, 200, 80, "units checked against [out]\nwanted and written volts\nchecked against limits", "plan", size=12, title="LCG2 checks (M2)")
+    s.box(250, 60, 190, 80, "ordered list of trials,\neach with condition,\nseed, timing", "built", size=12, title="sg_api_expand")
+    s.box(480, 60, 200, 80, "one trial at a time:\nsamples of every channel\nin pA / mV / 0-1", "built", size=12, title="sg_api_render_trial")
+    s.box(720, 60, 200, 80, "units checked against [out]\nwanted and written volts\nchecked against limits", "built", size=12, title="LCG2 checks (M2)")
     for a, b in ((210, 250), (440, 480), (680, 720)):
         s.arrow(a, 100, b, 100)
     s.text(470, 180, "Before the run, EVERY trial is rendered and checked. If any sample would clip, nothing is played and the error names trial, channel and sample.",

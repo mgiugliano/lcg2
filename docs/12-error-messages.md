@@ -108,6 +108,31 @@ Idle values of skipped outputs are not checked.
 | `-T: output '...' is skipped in this configuration` | the profile dropped it |
 | `rate ... with N analog input(s) is above the board's 500 kS/s total` | lower the rate or use fewer inputs |
 
+## The stimulus (read through StimGen)
+
+| Message (shortened) | What it means | What to do |
+|:--|:--|:--|
+| `FILE:LINE: ...` or `the -e text:LINE: ...` | StimGen found a mistake in your text, at that line | fix the stimulus; `build/sg help` explains the language |
+| `... is a plain waveform: it names no channel, so say which pipette gets it with -T NAME` | the text is one signal with no channel name | add `-T NAME` |
+| `-T is only for a plain waveform; ... names its channels itself` | `-T` with a stimulus or a protocol of stimuli | drop `-T` |
+| `-T: 'NAME' is not an analog output in use` | wrong name, a skipped or a digital output | choose an analog `[out]` that is in use |
+| `... a folder of trials (protocol.sgi) is not supported` | the text is a directory-form index | give the protocol text |
+| `... the trials are not all of the same kind` | a protocol mixes plain waveforms and stimuli | make them one kind |
+| `-r 10kHz differs from the rate stated in the stimulus` | the stimulus states a rate and `-r` disagrees | drop `-r`, or use the stated rate |
+| `no sampling rate: the stimulus does not state one, so give -r RATE or write rate = in [rig]` | no rate anywhere | add one |
+| `the stimulus has a channel 'P9', but the configuration has no [out P9] (outputs in use: ...)` | the channel name has no output | add `[out P9]`, or rename the channel |
+| `... but [out P2] is skipped in this configuration` | a profile dropped that output | use another profile or drop the channel |
+| `channel 'P1' is digital in the stimulus but [out P1] is analog` (and the reverse) | digital and analog mixed up | match the kinds |
+| `channel 'P1' is in pA (a current), but [out P1] carries a voltage in vc mode (mV); use -m cc, ...` | the stimulus unit does not fit the amplifier mode | use the other mode or change the unit |
+| `channel 'P1' has the unit 'nS', which is not a current ... or a voltage ...` | only currents and voltages can be played | use pA/nA/... or mV/V |
+| `the stimulus, channel P1: sample 10000 (0.5 s): 200 pA needs 0.5 V at the amplifier command, above the limit of 0.1 V; N of M samples clip in all` | a sample would exceed the limit | lower the stimulus, raise `limit` (at most 10 V), or check the gain |
+| `trial 0002, channel P1: sample 0 ...` | the same, in a protocol: names the trial | as above |
+| `...: the rest value 2100 pA: ...` | the stimulus's own rest value exceeds a limit | lower it |
+| `sample N is not a finite number` | NaN or infinity in the samples | fix the stimulus |
+| `channel 'X': sample N is 0.5, but a digital line takes only 0 and 1` | a digital channel with other values | make it 0 or 1 |
+| `cannot open stimulus file`, `... contains a NUL byte, so it is not text`, `... is over 64 MiB` | the file cannot be used as text | check the file |
+| `warning: ...: channels have different durations; ...` (not an error) | StimGen's own warning, passed on | `-q` silences it |
+
 ## Profiles
 
 | Message | Meaning |

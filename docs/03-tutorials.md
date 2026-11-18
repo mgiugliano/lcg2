@@ -6,8 +6,12 @@ Each tutorial is short and can be followed in order. Lines that start with
 folder of the project.
 
 > **Status.** All the tutorials below use the dry run `-n`, because playing and
-> recording are not written yet. Tutorial 9 shows, clearly marked as a preview,
-> what a full run is designed to look like.
+> recording are not written yet (M3 and M4). But the dry run is not shallow
+> any more: since milestone M2 it **reads your stimulus through StimGen**, renders
+> every trial, finds the output of every channel, checks the units and checks
+> every sample against the limits, exactly as a real run will do before it
+> plays anything. Tutorial 9 shows, clearly marked as a preview, what a full run
+> is designed to look like.
 
 Contents: [1 One pipette](#tutorial-1-one-pipette-in-current-clamp) ·
 [2 Voltage clamp](#tutorial-2-the-same-rig-in-voltage-clamp) ·
@@ -72,51 +76,74 @@ The names must agree: the stimulus channel `P1` is played on the output
 $ ./lcg2 -c examples/single_pipette.ini -n examples/step.sg
 ```
 
-The plan lists one output and one input (see [Quick start](02-quickstart.md)
-for a line-by-line reading).
+```text
+  rate           20 kHz (stated by the stimulus)
+  seed           ... (drawn now; recorded)
+  work           play the stimulus in examples/step.sg
+  stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
+  channels       P1 (pA)  ->  [out P1] on ao0, peak 0.5 V of the limit 5 V
+  check          1 trial(s) rendered and checked: no sample clips
+```
 
-**Try:** change `limit = 5` to `limit = 0.1` and run again. The stimulus of
-200 pA needs 0.5 V, above the limit. Today only the idle (rest) value is
-checked, so the plan still prints; from M2 on, LCG2 will refuse to start and
-name the first sample that would clip. See [Tutorial 6](#tutorial-6-safety-limits-and-the-rest-value).
+Read it from the top: the rate comes from the stimulus (it says `rate 20kHz`); a
+seed was drawn (give your own with `-s`); the stimulus has one channel, `P1`, in
+pA, which will be played on `[out P1]`, analog output 0; its largest command is
+0.5 V (200 pA at 400 pA per volt), well below the 5 V limit; and every sample was
+checked. The rest of the plan lists the outputs and inputs, as in the
+[Quick start](02-quickstart.md).
+
+**Try the safety check.** [`examples/low_limit.ini`](../examples/low_limit.ini) is the
+same rig with `limit = 0.1` instead of 5. The step needs 0.5 V, so:
+
+```console
+$ ./lcg2 -c examples/low_limit.ini -n examples/step.sg   # exit 1
+lcg2: the stimulus, channel P1: sample 10000 (0.5 s): 200 pA needs 0.5 V at the amplifier command, above the limit of 0.1 V; 20000 of 40000 samples clip in all
+```
+
+LCG2 refused before anything could be played, and told you the channel, the first
+sample (10000, which is 0.5 s: the start of the step), what it needs, the limit, and
+how many samples are affected. The same happens for a trial in the middle of a
+protocol of a thousand: all trials are checked before the first is played.
 
 ---
 
 ## Tutorial 2: the same rig in voltage clamp
 
-**Goal:** see how one flag changes the gains and units.
+**Goal:** see how one flag changes the gains and units, and how the stimulus unit is checked.
+
+In voltage clamp the command is a voltage, so the stimulus must be in volts.
+[`examples/step_vc.sg`](../examples/step_vc.sg) is the twin of `step.sg`: a 20 mV step.
 
 ```console
-$ ./lcg2 -c examples/single_pipette.ini -n -m vc examples/step.sg
+$ ./lcg2 -c examples/single_pipette.ini -n -m vc examples/step_vc.sg
 ```
 
-The output line now reads
+The plan now reads:
 
 ```text
-P1       -> ao0  20 mV per volt, limit 5 V, rest 0 mV
+  mode           vc
+  channels       P1 (mV)  ->  [out P1] on ao0, peak 1 V of the limit 5 V
+  ...
+    P1       -> ao0  20 mV per volt, limit 5 V, rest 0 mV
+    P1       <- ai0  1000 pA per volt, range 10 V, RSE
 ```
 
-and the input
+The command is in mV (20 mV per volt: the 20 mV step is 1 V), and the recording is a
+current (pA). Both sets of gains live in the file; `-m cc|vc` only chooses.
 
-```text
-P1       <- ai0  1000 pA per volt, range 10 V, RSE
-```
-
-In voltage clamp the command is a voltage (mV) and the recording is a current
-(pA). Both sets of gains live in the file; `-m cc|vc` only chooses. If you
-forget `-m` and the file has no `mode =` line, LCG2 refuses to guess:
+**The unit is checked by dimension.** The current-clamp stimulus does not fit a
+voltage-clamp rig, and LCG2 says so, and says what to do:
 
 ```console
-$ ./lcg2 -c examples/single_pipette.ini -n examples/step.sg
+$ ./lcg2 -c examples/single_pipette.ini -n -m vc examples/step.sg   # exit 1
+lcg2: channel 'P1' is in pA (a current), but [out P1] carries a voltage in vc mode (mV); use -m cc, or change the unit of the stimulus
 ```
 
-works because the file says `mode = cc`. If the file had no `mode =` line and
-you gave no `-m`, LCG2 would stop with `the amplifier mode is not set` (exit
-status 1): a wrong guess would apply the wrong gains.
+Only the *dimension* matters, not the spelling: a stimulus in `nA` on an output
+that works in `pA` is fine, and LCG2 rescales it (0.2 nA is 200 pA is 0.5 V).
 
-> A stimulus written in pA cannot be played in voltage clamp. From M2 on the
-> unit of each stimulus channel is checked against the mode: `pA` against `mV`
-> is an error, `nA` against `pA` is fine.
+If the file has no `mode =` line and you give no `-m`, LCG2 stops with `the amplifier
+mode is not set` (exit status 1): a wrong guess would apply the wrong gains.
 
 ---
 
@@ -137,14 +164,31 @@ channel P2 unit=pA { 2.5s dc(-50) }
 $ ./lcg2 -c examples/lcg2.ini -n examples/pair.sg
 ```
 
+```text
+  channels       P1 (pA)  ->  [out P1] on ao0, peak 5 V of the limit 5 V
+                 P2 (pA)  ->  [out P2] on ao1, peak 0.125 V
+  idle           TTL (not named: they hold their rest value)
+  check          1 trial(s) rendered and checked: no sample clips
+```
+
+Notice `peak 5 V of the limit 5 V`: the pulses of 2000 pA at 400 pA per volt are
+*exactly* at the limit. A sample exactly at the limit is allowed; one hair above is
+not.
+
 ![Multi-patch](figures/fig-multipatch.svg)
 
 The rules, which the plan shows:
 
 - A stimulus can name **any subset** of the outputs. Named outputs are driven.
-- An output the stimulus does not name is **idle**: it holds its `rest` value.
+- An output the stimulus does not name is **idle**: it holds its `rest` value (here
+  `TTL`).
 - **Every `[in]` is recorded** in every trial, driven or not.
-- A stimulus that names a channel with no `[out]` section is an error (from M2).
+- A stimulus that names a channel with no `[out]` section is an error:
+
+```console
+$ ./lcg2 -c examples/single_pipette.ini -n examples/pair.sg   # exit 1
+lcg2: the stimulus has a channel 'P2', but the configuration has no [out P2] (outputs in use: P1)
+```
 
 ---
 
@@ -167,17 +211,27 @@ rig.rate    = 10kHz
 ```
 
 ```console
-$ ./lcg2 -c examples/lcg2.ini -n -P single examples/pair.sg
+$ ./lcg2 -c examples/lcg2.ini -n -P single examples/step.sg
 $ ./lcg2 -c examples/lcg2.ini -n -P swap examples/pair.sg
 ```
 
-The first plan shows `P2 skipped` in both the outputs and the inputs. The second
-shows `P2 -> ao2` and a rate of 10 kHz. A profile line is written
-`section.key = value`: `rig.KEY` for `[rig]`, and `out.NAME.KEY`, `in.NAME.KEY`
-for the others.
+The first plan shows `P2 skipped` among the outputs and the inputs. The second shows
+`P2 -> ao2`. A profile line is written `section.key = value`: `rig.KEY` for `[rig]`, and
+`out.NAME.KEY`, `in.NAME.KEY` for the others.
 
-**`-T NAME`** sends a *plain waveform* (a single signal without a channel name)
-to the pipette `NAME`. [`examples/ramp.sg`](../examples/ramp.sg) is one line:
+Two things to learn from these runs. First, the profile `swap` sets `rig.rate = 10kHz`,
+but `pair.sg` states `rate 20kHz` itself, and **the stimulus's own rate wins**: the plan
+says `20 kHz (stated by the stimulus)`. The rate of the configuration is only a default
+for stimuli that state none. Second, a profile that skips an output makes a stimulus
+that names it an error:
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -n -P single examples/pair.sg   # exit 1
+lcg2: the stimulus has a channel 'P2', but [out P2] is skipped in this configuration
+```
+
+**`-T NAME`** sends a *plain waveform* (a single signal without a channel name) to the
+pipette `NAME`. [`examples/ramp.sg`](../examples/ramp.sg) is one line:
 
 ```text
 500ms dc(0); 1s dc(300); 500ms dc(0)
@@ -187,14 +241,25 @@ to the pipette `NAME`. [`examples/ramp.sg`](../examples/ramp.sg) is one line:
 $ ./lcg2 -c examples/lcg2.ini -n -T P2 examples/ramp.sg
 ```
 
-The plan says `target  plain waveform to P2 (-T)`. `-T` must name an analog output
-that is in use:
-
-```console
-$ ./lcg2 -c examples/lcg2.ini -n -T TTL -e x   # exit 1
+```text
+  rate           20 kHz (from the configuration; the stimulus states none)
+  target         plain waveform to P2 (-T)
+  stimulus       a plain waveform with 1 channel(s), 40000 samples (2 s)
+  channels       waveform (pA)  ->  [out P2] on ao1, peak 0.75 V
+  idle           P1, TTL (not named: they hold their rest value)
 ```
 
-fails with `-T: output 'TTL' is a digital line; a plain waveform needs an analog output`.
+The numbers of a plain waveform are in the unit of the pipette's output in the current
+mode (here pA; in `-m vc` they would be mV). `-T` is only for plain waveforms:
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -n -T P2 examples/step.sg   # exit 1
+lcg2: -T is only for a plain waveform; examples/step.sg names its channels itself
+$ ./lcg2 -c examples/lcg2.ini -n examples/ramp.sg   # exit 1
+lcg2: examples/ramp.sg is a plain waveform: it names no channel, so say which pipette gets it with -T NAME
+$ ./lcg2 -c examples/lcg2.ini -n -T TTL examples/ramp.sg   # exit 1
+lcg2: -T: output 'TTL' is a digital line; a plain waveform needs an analog output
+```
 
 ---
 
@@ -216,6 +281,12 @@ Only **port 0** can be clocked on the USB-6343, so any other port is refused:
 $ ./lcg2 -c examples/lcg2.ini -n examples/camera.sg
 ```
 
+```text
+  channels       P1 (pA)  ->  [out P1] on ao0, peak 0.9165 V of the limit 5 V
+                 TTL (digital)  ->  [out TTL] on port0/line0
+  idle           P2 (not named: they hold their rest value)
+```
+
 A digital line takes no gain, unit, limit, calibration or rest: it rests at the
 value the stimulus gives it, otherwise 0. The stimulus
 [`examples/camera.sg`](../examples/camera.sg) has a `digital TTL { ... }` block
@@ -225,7 +296,7 @@ whose values are 0 and 1 only.
 
 ## Tutorial 6: safety limits and the rest value
 
-**Goal:** understand the two limits and why a bad idle value is refused.
+**Goal:** understand the two limits, and what is checked before anything is played.
 
 ![Signal chain](figures/fig-signal-chain.svg)
 
@@ -235,15 +306,18 @@ An output has two limits:
    amplifier's command input. It protects the amplifier and the cell.
 2. 10 V: the range of the board itself, fixed.
 
-The idle value `rest` (in pA for cc, mV for vc, default 0) is held before,
-between and after trials. It is checked at load time. With `gain_cc = 400` and
+Two kinds of value are checked against both limits, never clipped silently:
+
+- every **sample** of the stimulus (Tutorial 1 showed the refusal);
+- the idle value `rest` (in pA for cc, mV for vc, default 0), which is held before,
+  between and after trials, and is checked as soon as the configuration is read. With `gain_cc = 400` and
 `limit = 5`, a `rest` of 2100 pA would need 5.25 V:
 
 [`examples/bad_rest.ini`](../examples/bad_rest.ini) is the single-pipette rig with
 `rest = 2100` added on purpose:
 
 ```console
-$ ./lcg2 -c examples/bad_rest.ini -n -e x   # exit 1
+$ ./lcg2 -c examples/bad_rest.ini -n examples/step.sg   # exit 1
 lcg2: examples/bad_rest.ini:17: [out P1] rest: 2100 pA needs 5.25 V at the amplifier command, above the limit of 5 V
 ```
 
@@ -259,7 +333,7 @@ Rate is checked too. The board's analog input limit is 500 kS/s, shared by all
 inputs in use:
 
 ```console
-$ ./lcg2 -c examples/lcg2.ini -n -r 300kHz -e x   # exit 1
+$ ./lcg2 -c examples/lcg2.ini -n -r 300kHz examples/ramp.sg   # exit 1
 ```
 
 ```text
@@ -303,7 +377,8 @@ $ ./lcg2 -c examples/lcg2.ini -n -t 30   # exit 1
    `gain_cc = 100`, `unit_cc = mV` on the input.
 5. **Set a `limit`.** Choose the largest command voltage you would accept. It
    costs nothing and prevents a typo from damaging a preparation.
-6. **Check it:** `./lcg2 -c your.ini -n -e x`, once per mode (`-m cc`, `-m vc`).
+6. **Check it:** `./lcg2 -c your.ini -n your_stimulus.sg`, once per mode (`-m cc` with a
+   stimulus in pA, `-m vc` with one in mV).
 7. **Calibrate (optional).** Measure the board with a voltmeter and enter
    `cal_scale` and `cal_offset` per channel (see [Concepts](04-concepts.md)).
 8. **Add profiles** for the variations you use (single cell, swapped pipettes).
@@ -313,17 +388,41 @@ Every mistake gives a message with the file and the line; see
 
 ---
 
-## Tutorial 9: preview: what a full run will look like
+## Tutorial 9: a protocol, and a preview of the run
 
-> **Designed, not built (M2 to M4).** The text below is a *mock-up* of the
-> intended behaviour, not output from the program.
+**Goal:** check a whole protocol today, and see what a run will add.
+
+[`examples/steps_protocol.sg`](../examples/steps_protocol.sg) is a protocol: a family of current steps
+from -300 to +300 pA in steps of 50 pA, three repetitions, in shuffled blocks, one trial
+every 5 s. Check it on the single-cell profile:
 
 ```console
-$ ./lcg2 -c examples/lcg2.ini -m cc -P single examples/steps_protocol.sg
-lcg2: 39 trials, rate 20 kHz, seed 13884263320379133600
+$ ./lcg2 -c examples/lcg2.ini -n -P single examples/steps_protocol.sg
+```
+
+```text
+  rate           20 kHz (from the configuration; the stimulus states none)
+  seed           protocol seed 14272848968180529564 (drawn now; recorded)
+  stimulus       a protocol of 39 trials: period 5s, start immediately; each trial 40000 samples (2 s)
+  channels       P1 (pA)  ->  [out P1] on ao0, peak 0.75 V of the limit 5 V
+  idle           TTL (not named: they hold their rest value)
+  check          39 trial(s) rendered and checked: no sample clips
+```
+
+StimGen expanded the protocol into 39 trials and LCG2 rendered and checked **each one**;
+the largest command anywhere is 0.75 V (300 pA). The order of the trials and the seed
+of each are fixed by the protocol seed: give `-s 7` and you get the same ones every time.
+Add `-v` to list the trials as they are checked.
+
+> **Designed, not built (M3, M4).** What follows is a *mock-up* of the intended
+> behaviour of a real run, not output from the program.
+
+```console
+$ ./lcg2 -c examples/lcg2.ini -m cc -P single -s 7 examples/steps_protocol.sg
+lcg2: 39 trials, rate 20 kHz, seed 7
 lcg2: all trials checked: no sample clips
-lcg2: trial 1/39  amp=-150pA  start 0.000 s  delay 0.000 s
-lcg2: trial 2/39  amp= 250pA  start 5.000 s  delay 0.000 s
+lcg2: trial 1/39  0000  start 0.000 s  delay 0.000 s
+lcg2: trial 2/39  0001  start 5.000 s  delay 0.000 s
 ...
 lcg2: wrote 20261118_142100.h5 and .20261118_142100/
 ```
@@ -349,18 +448,18 @@ value, close the data file with the completed trials (the running one marked
 
 ## Tutorial 10: checking a stimulus with `sg`
 
-StimGen has its own command-line tool, `sg`, which is useful *today* to write and
-check stimuli before LCG2 can play them. Build it once in the StimGen folder and
-use it:
+StimGen has its own command-line tool, `sg`. `make` builds a copy of it from the
+StimGen sources into `build/sg` (nothing is written inside the StimGen folder), and
+LCG2's tests use it as the reference: the samples LCG2 decodes are compared, bit for
+bit, with what `sg render` writes. You can use it to write and look at stimuli:
 
 ```console
-$ cd ../StimGen && make && cd ../lcg2        # builds ../StimGen/src/sg
-$ ../StimGen/src/sg check examples/pair.sg
+$ build/sg check examples/pair.sg
 examples/pair.sg: ok, 2 channel(s), 50000 samples at 20000 Hz (2.5 s)
-$ ../StimGen/src/sg check examples/steps_protocol.sg
+$ build/sg check examples/steps_protocol.sg
 examples/steps_protocol.sg: ok, 39 trial(s), protocol seed 13884263320379133600
-$ ../StimGen/src/sg expand examples/steps_protocol.sg /tmp/steps    # list every trial as a file
+$ build/sg expand -s 7 examples/steps_protocol.sg /tmp/steps    # every trial as a file, with its seed
 ```
 
 All the `.sg` files in `examples/` pass `sg check`. See [07 StimGen and
-LCG2](07-stimgen.md) for how LCG2 will use the same engine.
+LCG2](07-stimgen.md) for exactly how LCG2 uses the same engine.

@@ -42,7 +42,7 @@ can be re-addressed to another pipette without editing it.
 The original LCG suite (J Neurosci Methods, with Linaro and Couto) grew into a
 large program with dynamic clamp, Comedi drivers and a real-time kernel. LCG2
 keeps only the part most experiments need, and keeps it small enough to read:
-under two thousand lines of C so far, heavily commented. The unfinished Geko
+about three thousand lines of C so far, heavily commented. The unfinished Geko
 project contributed ideas (the INI file, the run folder), not code.
 
 ## Design principles
@@ -69,7 +69,7 @@ project contributed ideas (the INI file, the run folder), not code.
 |:--|:--|
 | Command line, configuration file, profiles, units, checks, dry run (`-n`) | **Built** (M0, M1) |
 | StimGen version pin and build check | **Built** (M0) |
-| Calling StimGen to render trials, unit and clipping checks of the stimulus | **Designed** (M2) |
+| Calling StimGen to render trials; channel map, unit and clipping checks of every sample; the volts for the backend | **Built** (M2) |
 | Trial engine, scheduling, rest values, abort | **Designed** (M3) |
 | Built-in loopback simulator | **Designed** (M3) |
 | NEURON simulator backend with virtual cells and synapses | **Designed** (M3b) |

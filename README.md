@@ -6,12 +6,13 @@ the analog and digital outputs of an acquisition board and records the analog
 inputs at the same time. It is a stripped-down successor of the LCG software
 (J Neurosci Methods): no dynamic clamp, no Comedi, no real-time kernel.
 
-> **Status: early.** Milestones M0 and M1 are built and tested: the program reads
-> the command line and the configuration file, applies rig profiles, checks
-> everything and prints a plan (`-n`). **It does not play or record yet.** The
-> link to StimGen (M2), the simulators (M3, M3b), HDF5 recording (M4) and the
-> board (M6) are designed and documented, not written. Nothing in this
-> repository touches hardware.
+> **Status: early.** Milestones M0, M1 and M2 are built and tested: the program reads
+> the command line and the configuration file, applies rig profiles, **reads the
+> stimulus through StimGen**, renders every trial, checks units and every sample
+> against the limits, and prints a plan (`-n`). **It does not play or record yet.**
+> The trial engine and simulators (M3, M3b), HDF5 recording (M4) and the board (M6)
+> are designed and documented, not written. Nothing in this repository touches
+> hardware.
 
 ```console
 $ make
@@ -21,7 +22,12 @@ LCG2 0.0.1, dry run: the plan
   configuration  examples/single_pipette.ini (profile: none)
   device         sim  (built-in loopback simulator)
   mode           cc
+  rate           20 kHz (stated by the stimulus)
   ...
+  stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
+  channels       P1 (pA)  ->  [out P1] on ao0, peak 0.5 V of the limit 5 V
+  check          1 trial(s) rendered and checked: no sample clips
+
   outputs
     P1       -> ao0  400 pA per volt, limit 5 V, rest 0 pA
 
@@ -50,7 +56,7 @@ simulator design, the hardware notes, an architecture guide for developers and
 ## Build and test
 
 ```console
-$ make          # check the StimGen pin, build ./lcg2
+$ make          # check the StimGen pin, build ./lcg2 and the test tools
 $ make test     # run the tests (needs python3)
 ```
 

@@ -1,0 +1,11 @@
+sg 2 stimulus
+# The voltage-clamp twin of step.sg: a 20 mV step on pipette P1. In voltage clamp
+# the command is a voltage, so the unit is mV. Use it with -m vc.
+rate 20kHz
+
+channel P1 unit=mV {
+    500ms  dc(0)
+    @step
+    1s     dc(20)
+    500ms  dc(0)
+}

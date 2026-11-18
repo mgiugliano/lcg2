@@ -56,16 +56,16 @@ STIMGEN_SRC ?= ../StimGen/src
 # The library files of StimGen, in the order used to compute the fingerprint.
 SG_FILES = util help render rng parse prims eval protocol sgb sg_api
 
-SRC     = err units config cli main
+SRC     = err units config cli json stim main
 OBJ     = $(SRC:%=build/%.o) build/ini.o
 SG_OBJ  = $(SG_FILES:%=build/stimgen/%.o)
 
-all: check-pin lcg2
+all: check-pin lcg2 tools
 
-lcg2: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDLIBS)
+lcg2: $(OBJ) $(SG_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(SG_OBJ) $(LDLIBS)
 
-build/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h | build
+build/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h | build
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -c -o $@ $<
 
 build/ini.o: vendor/inih/ini.c vendor/inih/ini.h | build
@@ -79,6 +79,29 @@ build/stimgen/%.o: $(STIMGEN_SRC)/%.c $(STIMGEN_SRC)/sg.h | build/stimgen
 
 build build/stimgen:
 	mkdir -p $@
+
+# ---------------------------------------------------------------------------
+# Tools used by the tests (not part of lcg2):
+#   build/sg         StimGen's own command-line renderer, compiled from
+#                    STIMGEN_SRC with LCG2's flags, to compare with
+#   build/stimdump   dumps what LCG2's stimulus module holds, for comparison
+#   build/jsontool   round-trips JSON through json.c
+# ---------------------------------------------------------------------------
+tools: build/sg build/stimdump build/jsontool build/unit
+
+build/sg: build/stimgen/main.o $(SG_OBJ)
+	$(CC) $(CFLAGS) -o $@ build/stimgen/main.o $(SG_OBJ) $(LDLIBS)
+
+LIBOBJ = $(filter-out build/main.o,$(OBJ))
+
+build/stimdump: tests/stimdump.c $(LIBOBJ) $(SG_OBJ)
+	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/stimdump.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
+
+build/unit: tests/unit.c $(LIBOBJ) $(SG_OBJ)
+	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/unit.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
+
+build/jsontool: tests/jsontool.c build/json.o build/err.o
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/jsontool.c build/json.o build/err.o $(LDLIBS)
 
 # ---------------------------------------------------------------------------
 # The pin: the library sources must be the ones LCG2 was tested against.
@@ -101,10 +124,12 @@ check-pin:
 	echo "check-pin: StimGen sources match the pin"
 
 test: all
+	./build/unit
 	python3 tests/run_tests.py ./lcg2
+	python3 tests/test_stim.py
 	python3 tests/test_docs.py ./lcg2
 
 clean:
 	rm -rf build lcg2
 
-.PHONY: all stimgen-lib check-pin test clean
+.PHONY: all tools stimgen-lib check-pin test clean

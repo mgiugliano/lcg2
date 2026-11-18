@@ -25,11 +25,11 @@ Exactly one of these three must be given: a stimulus file, `-e`, or `-t`.
 | `-c` | `FILE` | configuration file. Default: `lcg2.ini` in the current directory. |
 | `-P` | `NAME` | rig profile: apply the section `[profile NAME]`. |
 | `-m` | `cc` or `vc` | amplifier mode (current clamp or voltage clamp). Overrides `mode` in `[rig]`. One of the two is required. |
-| `-r` | `RATE` | sampling rate: `20kHz`, `10000` (Hz), `2.5Hz`, `1e4`, `0.5MHz`. |
+| `-r` | `RATE` | sampling rate: `20kHz`, `10000` (Hz), `2.5Hz`, `1e4`, `0.5MHz`. A rate written in the stimulus wins; a different `-r` is an error. |
 | `-s` | `SEED` | seed of the random generators: a non-negative integer. Without it one is drawn and recorded. |
-| `-T` | `NAME` | send a *plain waveform* to the pipette `NAME`, which must be an `[out NAME]` in use and analog. |
+| `-T` | `NAME` | send a *plain waveform* (a signal that names no channel) to the pipette `NAME`, which must be an analog `[out NAME]` in use. Required for a plain waveform; an error with a stimulus. |
 | `-t` | `DURATION` | record only, for that long: `30s`, `500ms`, `250us`, `2min`. The unit is required; the value must be above 0. |
-| `-e` | `TEXT` | the stimulus text given inline instead of in a file; `;` separates segments, as in StimGen's `sg`. |
+| `-e` | `TEXT` | the stimulus text given inline instead of in a file. A full stimulus needs newlines (`-e $'sg 2 stimulus\nchannel P1 unit=pA { 1s dc(0) }'` in bash); a plain waveform may be one line, `;` separating segments, as in StimGen's `sg`. |
 | `-p` | `PREFIX` | prefix of the output file names. Letters, digits, `_`, `-`, `.`; must not start with `.` or contain a slash. |
 | `-n` | | dry run: check everything, print the plan on stdout, play nothing. |
 | `-q` | | quieter (progress will be reduced). Cannot be used with `-v`. |
@@ -65,6 +65,9 @@ in `sg` it is `--text`, while in LCG2 it is the record-only duration.
 | `-T NAME` where `NAME` is unknown, skipped or digital | a plain waveform needs an analog output in use |
 | playing with no `[out]` in use | nowhere to play (use `-t` to record) |
 | a stimulus file that cannot be opened | checked up front |
+| a plain waveform without `-T`, or `-T` with a stimulus | `-T` is for plain waveforms only |
+| `-r` that differs from the rate the stimulus states | the stimulus's rate wins |
+| a stimulus that clips, names an unknown channel, or has the wrong unit | refused before anything plays |
 
 ## Output streams and exit status
 
@@ -91,4 +94,5 @@ $ ./lcg2 -c rig.ini -t 30s                       # record 30 s, outputs at rest
 $ ./lcg2 -c rig.ini -n -v stimulus.sg            # check, print the plan and the resolved config
 ```
 
-(Only the `-n` forms do something today. The others stop with "not implemented yet".)
+Today a run without `-n` reads the stimulus and does **all** the checks, then stops
+with "not implemented yet" (playing and recording are milestones M3 and M4).

@@ -181,6 +181,7 @@ typedef struct {
     Mode    mode;                /* the mode in force for this run        */
     int     has_rate;            /* a rate in [rig] (after any profile)   */
     int64_t rate_p, rate_q;      /* exact rate p/q Hz                     */
+    char    rate_text[48];       /* as written, to hand to StimGen        */
     int     has_trigger;
     char    trigger[16];         /* "PFI0" ... "PFI15"                    */
     char    sim_script[CFG_VAL];

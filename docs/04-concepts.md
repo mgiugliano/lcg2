@@ -91,7 +91,8 @@ Input `P1`: `gain_cc = 100` (mV/V), same calibration.
 
 ![Signal chain](figures/fig-signal-chain.svg)
 
-**Built:** the keys are read and checked. **Designed (M2):** applied to samples.
+**Built:** the keys are read and checked, and applied to every sample when the volts for the
+backend are made (M2). Which of the two limits applies to a *recorded* input is a later question.
 
 ## 3. Limits and the rest value
 
@@ -113,10 +114,11 @@ buffer sent to the board. It is in the unit of the active mode, default 0.
 - For an `[out]` the stimulus does not name, the `rest` in the configuration is used.
 - A digital line rests at the stimulus value, otherwise 0.
 
-**Built:** the `rest` of every output in use is checked at load time. A `rest`
-that would exceed a limit is an error that names the file, line and numbers.
-**Designed (M2):** the same check on every sample of every trial, *before
-anything is played*.
+**Built:** the `rest` of every output in use is checked at load time, and (M2) **every
+sample of every trial** is checked, plus the stimulus's own `rest` values, *before
+anything is played*. A value that would exceed a limit is an error that names the
+trial, channel, sample and numbers. A value that is not a finite number (NaN, infinity)
+is refused too.
 
 **Never silent.** If any sample would clip, LCG2 plays nothing, and the error
 names the trial, the channel and the first sample.
@@ -134,9 +136,9 @@ which dimension each channel carries:
 
 Each channel has both sets of keys (`gain_cc`/`unit_cc`, `gain_vc`/`unit_vc`); only the
 set of the mode in use is required. The dimension of each unit is checked, so
-`unit_cc = mV` on an output is an error. From M2 on, the unit of each stimulus
+`unit_cc = mV` on an output is an error. The unit of each stimulus
 channel is also checked against the unit of its output **by dimension**, not
-by spelling: `nA` against `pA` is fine (it is rescaled), `pA` against `mV` is an
+by spelling (built, M2): `nA` against `pA` is fine (it is rescaled), `pA` against `mV` is an
 error.
 
 There is no default mode. If neither `-m` nor `mode =` is given, LCG2 stops:
@@ -176,8 +178,8 @@ awkward on typed structures.
 | **Seed** | Only `-s` overrides a seed written in a stimulus or protocol. The configuration has no seed. With no seed anywhere, one is drawn and recorded. |
 | **Rest value** | The stimulus's `rest` for channels it names; the configuration's `rest` for idle `[out]` sections; 0 otherwise. |
 
-**Built:** `-r`, `-s` and the configuration's `rate` are parsed and shown in the
-plan. **Designed (M2):** combining them with what the stimulus states.
+**Built (M2):** combining them with what the stimulus states, in every case (see
+[07](07-stimgen.md) for the table). The run's rate is read back from the rendered trial.
 
 Rates are held as exact fractions (`p/q` Hz), never as floating point, so that
 `20kHz` is exactly 20000 and two rates compare exactly.
@@ -187,7 +189,7 @@ Rates are held as exact fractions (`p/q` Hz), never as floating point, so that
 A StimGen **stimulus** is one trial. A StimGen **protocol** is a list of trials:
 a sweep of parameters, repetitions, an order (sequential, shuffled, ...) and
 timing. StimGen expands a protocol into an ordered list, with the seed of each
-trial, before anything is played (see [07](07-stimgen.md)).
+trial, before anything is played (built, M2: see [07](07-stimgen.md)).
 
 ![Timeline](figures/fig-timeline.svg)
 

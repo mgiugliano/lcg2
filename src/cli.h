@@ -47,6 +47,7 @@ typedef struct {
     const char *profile;         /* -P NAME (NULL: none)                   */
     Mode        mode;            /* -m cc|vc (MODE_NONE: not given)        */
     int         has_rate;        /* -r given                               */
+    const char *rate_text;       /*   as written, to hand to StimGen       */
     int64_t     rate_p, rate_q;  /*   its exact value p/q Hz               */
     const char *seed;            /* -s SEED, checked: a non-negative integer */
     const char *target;          /* -T NAME: pipette for a plain waveform  */

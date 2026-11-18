@@ -1,0 +1,122 @@
+/*
+ * LCG2 -- SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Michele Giugliano
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/*
+ * unit.c -- unit tests for functions that are hard to reach from the command
+ * line: the limit check of an output (finiteness, exact boundaries, the sign
+ * of the calibration) and the exact rate fraction.
+ *
+ * Prints one line per failure and a summary; exit status 1 if any failed.
+ * Not part of lcg2; built and run by `make test`.
+ */
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "config.h"
+#include "stim.h"
+
+static int failures, checks;
+
+#define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
+    printf("FAIL line %d: %s\n", __LINE__, #cond); } } while (0)
+
+/* An output: gain 400 pA per volt in cc, limit 5 V unless limit < 0. */
+static OutCh make(double limit, double off, double scl)
+{
+    OutCh o;
+    memset(&o, 0, sizeof o);
+    strcpy(o.name, "P1");
+    o.gain[0] = 400; o.has_gain[0] = 1; strcpy(o.unit[0], "pA");
+    o.has_limit = limit >= 0;
+    o.limit = limit;
+    o.cal_offset = off;
+    o.cal_scale = scl;
+    return o;
+}
+
+int main(void)
+{
+    Err e;
+    OutCh o;
+    int64_t p, q;
+
+    /* Exact boundaries: |wanted| <= limit passes, a hair above fails. */
+    o = make(5, 0, 1);
+    CHECK(out_check_value(&o, MODE_CC, 2000, &e) == 0);          /* exactly 5 V   */
+    CHECK(out_check_value(&o, MODE_CC, -2000, &e) == 0);
+    CHECK(out_check_value(&o, MODE_CC, 2000.0000001, &e) == -1);
+    CHECK(strstr(e.msg, "above the limit of 5 V") != NULL);
+    CHECK(out_check_value(&o, MODE_CC, -2001, &e) == -1);
+
+    /* The board range, with no limit set. */
+    o = make(-1, 0, 1);
+    CHECK(out_check_value(&o, MODE_CC, 4000, &e) == 0);          /* exactly 10 V  */
+    CHECK(out_check_value(&o, MODE_CC, 4000.001, &e) == -1);
+    CHECK(strstr(e.msg, "above its range of 10 V") != NULL);
+
+    /* The calibration enters after the limit: written = (wanted - off) / scale. */
+    o = make(-1, 0, 0.99);
+    CHECK(out_check_value(&o, MODE_CC, 3990, &e) == -1);         /* 9.975 / .99 > 10 */
+    o = make(-1, 0, -1.0);                                        /* an inverting board */
+    CHECK(out_check_value(&o, MODE_CC, 4000, &e) == 0);
+    CHECK(out_check_value(&o, MODE_CC, -4000, &e) == 0);
+    CHECK(out_check_value(&o, MODE_CC, 4001, &e) == -1);
+    o = make(-1, 0.5, 1);                                         /* offset 0.5 V  */
+    /* wanted = value/400, written = wanted - 0.5 */
+    CHECK(out_check_value(&o, MODE_CC, -3800, &e) == 0);          /* -9.5 - .5 = -10 */
+    CHECK(out_check_value(&o, MODE_CC, -3801, &e) == -1);         /* just below -10  */
+    CHECK(out_check_value(&o, MODE_CC, 4200, &e) == 0);           /* 10.5 - .5 = 10  */
+    CHECK(out_check_value(&o, MODE_CC, 4201, &e) == -1);
+
+    /* Never silent about a value that is not a number. */
+    o = make(5, 0, 1);
+    CHECK(out_check_value(&o, MODE_CC, NAN, &e) == -1);
+    CHECK(strstr(e.msg, "not a finite number") != NULL);
+    CHECK(out_check_value(&o, MODE_CC, INFINITY, &e) == -1);
+    CHECK(out_check_value(&o, MODE_CC, -INFINITY, &e) == -1);
+    o = make(-1, 0, 1);
+    CHECK(out_check_value(&o, MODE_CC, NAN, &e) == -1);
+    o = make(-1, 0, 1e-320);                                      /* overflows to inf */
+    CHECK(out_check_value(&o, MODE_CC, 1, &e) == -1);
+    CHECK(strstr(e.msg, "finite voltage") != NULL);
+    o = make(-1, 0, 1);
+    o.gain[0] = 1e-320;                                           /* wanted overflows */
+    CHECK(out_check_value(&o, MODE_CC, 1e10, &e) == -1);
+
+    /* Exact rate fractions of what StimGen reports. */
+    CHECK(stim_rate_fraction(20000, &p, &q) == 0 && p == 20000 && q == 1);
+    CHECK(stim_rate_fraction(2.5, &p, &q) == 0 && p == 5 && q == 2);
+    CHECK(stim_rate_fraction(0.001, &p, &q) == 0 && p == 1 && q == 1000);
+    CHECK(stim_rate_fraction(1e6, &p, &q) == 0 && p == 1000000 && q == 1);
+    CHECK(stim_rate_fraction(0.000001, &p, &q) == 0 && p == 1 && q == 1000000);
+    CHECK(stim_rate_fraction(1e-7, &p, &q) == -1);
+    CHECK(stim_rate_fraction(0.0, &p, &q) == -1);
+    CHECK(stim_rate_fraction(-5, &p, &q) == -1);
+    CHECK(stim_rate_fraction(NAN, &p, &q) == -1);
+    CHECK(stim_rate_fraction(INFINITY, &p, &q) == -1);
+    CHECK(stim_rate_fraction(1.0 / 3.0, &p, &q) == -1);           /* not decimal */
+
+    printf("unit tests: %d checks, %d failed\n", checks, failures);
+    return failures ? 1 : 0;
+}

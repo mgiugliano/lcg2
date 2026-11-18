@@ -1,8 +1,8 @@
-# LCG2 specification (working draft 3)
+# LCG2 specification (working draft 4)
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
-2026-11-18, and its findings are applied here. Milestones M0 and M1 are built
-and tested (section 12); section 4a records the choices made while building M1. Items under "Decided" are the
+2026-11-18, and its findings are applied here. Milestones M0, M1 and M2 are built
+and tested (section 12); section 4a records the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
 
@@ -132,9 +132,11 @@ combined (`-n -v`, not `-nv`): `argv` is parsed by hand, not with `getopt`. Flag
 6. **Profiles.** `[profile NAME]` overrides keys of other sections, written
    `section.key = value` (for example `out.P2.line = ao1`), and may set
    `skip = yes` on a section.
-7. **Relative paths.** StimGen resolves `use` and `file()` against the current
-   directory. LCG2 does the same, and records the absolute paths and digests
-   of what was read (the rule may become "relative to the stimulus file" in M2).
+7. **Relative paths.** *Decided by the owner (M2):* `use` and `file()` are resolved
+   against the **current directory**, which is what the `sg_api_*` interface does by
+   itself. (`sg render dir/x.sg` uses the stimulus file's own folder instead; the two
+   agree when `lcg2` is run from that folder.) LCG2 records the paths and digests of
+   what was read.
 
 ## 4a. The configuration file as built (M1)
 
@@ -179,9 +181,48 @@ a key outside a section, a line over 999 characters: all errors, with
   required, with no default; `-t` needs a unit; `+` signs are refused; options
   cannot be combined (`-nv`); names are identifiers of at most 47 characters;
   `-n` prints on stdout; `DIFF` pairs `ai(N)` with `ai(N+8)`.
-- **Notes for M2**: compare rates by cross-multiplying (LCG2 reduces `p/q` by
-  the gcd, StimGen does not), and take the rate of a run from StimGen's
-  rendered result, not from LCG2's own parse of the text.
+
+### 4b. The StimGen link as built (M2)
+
+- **Only `sg_api_*`**, by construction: LCG2 does not include `sg.h`; the prototypes it
+  uses are in `src/stimgen_api.h`, and every call is in `src/stim.c`. Results are copied
+  out at once (they are valid only until the next call).
+- **Kinds**: `stimulus` (one trial), `protocol` (`sg_api_expand` once; trials `0000`...),
+  `waveform` (one signal that names no channel: needs `-T NAME`; its numbers are in the
+  unit of that output in the current mode, handed to StimGen as the waveform's unit),
+  `index` (a folder of trials: refused). `-T` with a stimulus or a protocol of stimuli is
+  an error. The trials of a protocol must be all of one kind.
+- **Rate**: render trial 0 with `-r` (or none); if StimGen says `no sampling rate`, render
+  again with the `[rig]` rate. StimGen itself refuses a `-r` that differs from a stated
+  rate. The wording of that message is fixed by the pin and tested. The rate of the run
+  is read back from the rendered trial as an exact decimal fraction (`stim_rate_fraction`)
+  and checked against 500 kS/s over the inputs in use.
+- **Seed**: fixed by `stim_open`: `-s` if given, else the seed the first render drew (read
+  from the `.sgb` header) and handed to every later render; a protocol's seed is drawn
+  once in the single `sg_api_expand` call and each trial's seed is in the list. A trial
+  rendered twice is bit for bit the same (tested, with and without `-s`).
+- **Decoding**: the `.sgb` header is read with LCG2's JSON reader and the samples are
+  decoded byte by byte, so they equal `sg render --text` exactly (tested on plain
+  stimuli, every trial of two protocols, a plain waveform, `-e` text, other units).
+- **Mapping and units**: a channel `NAME` goes to `[out NAME]`; unknown or skipped
+  output, digital against analog, and two channels on one output are errors; units are
+  compared by dimension and rescaled (`nA` on `pA`); a unit that is neither current nor
+  voltage is an error.
+- **Clipping**: every sample must be finite; the stimulus's `rest` and the extreme samples
+  are checked with `out_check_value()` (the helper of 3.13), which is enough because the
+  map to volts is a straight line; on failure LCG2 finds the first sample and counts them
+  all. All trials are checked before anything plays. A digital sample must be 0 or 1.
+- **Drive** (`stim_drive`): per output in use, `n` samples then `STIM_REST_PAD` rest samples
+  (**2, provisional: S1 decides**): analog written volts `(value/gain - cal_offset)/cal_scale`;
+  idle analog outputs at the rest of the configuration; digital 0/1 with the stimulus's
+  rest in the padding (0 if unnamed). Packing digital lines into a port word, and timing,
+  belong to the backend and the engine (M3).
+- **Messages** name the user's own file (or `the -e text`) and say `-r`, not `--rate`.
+- **Plan** (`-n`) shows the rate and its source, the seed, the stimulus (kind, trials,
+  samples), each channel's output and peak command against its limit, the idle outputs,
+  and the check result.
+- **Unit tests** (`build/unit`) cover `out_check_value` (exact boundaries, NaN and infinity,
+  a negative calibration scale) and the rate fraction.
 - **Profiles**: keys are `rig.KEY` or `KIND.NAME.KEY` (`out.P2.line = ao1`,
   `in.P1.skip = yes`) and must name an existing section. `-m` is written into
   the resolved configuration, marked as set on the command line.
@@ -328,7 +369,7 @@ How `device = neuron` works:
 |:--|:--|:--|
 | M0 **done** | Skeleton: layout, Makefile (`-std=c99 -pedantic -Wall -Wextra -ffp-contract=off`, `mpicc` on the Mac), pin check, inih, MIT headers | builds with no warnings; fails if the StimGen sources differ from the pin |
 | M1 **done** | Config and CLI: INI, profiles, flags, validation, `-n` | a table of good and bad configs gives the expected messages and exit codes |
-| M2 | StimGen integration: kind, expand, render trial, JSON trial list, channel map, unit check, volts, clip check of all trials, rest samples | samples equal `sg render` on this machine; trial order and seeds equal `sg expand`; a clipping trial is refused before anything plays |
+| M2 **done** | StimGen integration: kind, expand, render trial, JSON trial list, channel map, unit check, volts, clip check of all trials, rest samples | samples equal `sg render` on this machine; trial order and seeds equal `sg expand`; a clipping trial is refused before anything plays |
 | M3 | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
 | M3b | NEURON backend (section 11): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
 | M4 | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |

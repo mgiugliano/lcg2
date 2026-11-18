@@ -565,6 +565,7 @@ static int build_rig(const Table *t, Mode mode_flag, Config *c, Err *err)
         if (units_parse_rate(en->val, &c->rate_p, &c->rate_q) < 0)
             return cfg_err(t, en, err, "'%s' is not a rate (examples: 20kHz, 10000, "
                            "2.5Hz)", en->val);
+        snprintf(c->rate_text, sizeof c->rate_text, "%s", en->val);
         c->has_rate = 1;
     }
 
@@ -722,6 +723,15 @@ int out_check_value(const OutCh *o, Mode m, double value, Err *err)
     double written = out_written_volts(o, wanted);
     const char *unit = o->unit[MODE_INDEX(m)];
 
+    /* Every comparison with NaN is false, so a NaN would slip through the two
+     * limits below.  A value that is not a finite number, or that becomes one
+     * on the way to volts, is refused first. */
+    if (!isfinite(value))
+        return err_set(err, "the value is not a finite number");
+    if (!isfinite(wanted) || !isfinite(written))
+        return err_set(err, "%g %s does not give a finite voltage (gain %g, "
+                       "calibration scale %g)", value, unit, o->gain[MODE_INDEX(m)],
+                       o->cal_scale);
     if (o->has_limit && fabs(wanted) > o->limit)
         return err_set(err, "%g %s needs %g V at the amplifier command, above the "
                        "limit of %g V", value, unit, wanted, o->limit);

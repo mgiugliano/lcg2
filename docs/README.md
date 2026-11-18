@@ -7,11 +7,13 @@ inputs at the same time. It is a stripped-down successor of the LCG software,
 written in ISO C99, with no dynamic clamp and no real-time kernel.
 
 > **Where the project stands (read this first).**
-> Milestones M0 and M1 are built and tested: the program reads the command line
-> and the configuration file, applies rig profiles, checks everything and prints
-> the plan with `-n`. **It does not play or record anything yet.** The link to
-> StimGen (M2), the simulators (M3, M3b), the HDF5 recording (M4) and the board
-> (M6) are designed and documented here, but not written. Every page says
+> Milestones M0, M1 and M2 are built and tested: the program reads the command line
+> and the configuration file, applies rig profiles, **reads your stimulus through
+> StimGen**, renders every trial, maps channels to outputs, checks units and every
+> sample against the limits, and prints the plan with `-n`. **It does not play or
+> record anything yet.** The trial engine and simulators (M3, M3b), the HDF5
+> recording (M4) and the board (M6) are designed and documented here, but not
+> written. Every page says
 > which parts are *built* and which are *designed*. The status of each piece is
 > shown with the same marks everywhere:
 >

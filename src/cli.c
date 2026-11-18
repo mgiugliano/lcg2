@@ -139,6 +139,7 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
                     return err_set(err, "-r: '%s' is not a rate (examples: 20kHz, "
                                    "10000, 2.5Hz)", val);
                 o->has_rate = 1;
+                o->rate_text = val;
                 break;
             case 't':
                 if (units_parse_duration(val, &o->duration_ps) < 0)

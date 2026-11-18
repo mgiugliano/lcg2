@@ -13,6 +13,7 @@
 # A crash (a signal) is always a failure.  Add a case for every bug fixed.
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -72,7 +73,12 @@ out.P2.line = ao2
 rig.rate = 10kHz
 """
 
-STIM = ["-e", "x"]          # any source of work will do for a dry run
+# A dry run now reads the stimulus (M2), so the source of work must be real. The
+# placeholders are replaced in run_case(): a stimulus on P1 in the unit of the
+# amplifier mode in force (pA for cc, mV for vc), and a plain waveform for -T.
+# The stimulus states no rate, so -r and the rate of the file decide.
+STIM = ["-e", "@STIM@"]
+WAVE = "@WAVE@"
 
 cases = []                  # (name, config, args, rc, fragment, where)
 
@@ -122,7 +128,7 @@ good("-t milliseconds", ["-t", "500ms"], "0.5 s")
 good("-t fractional minutes", ["-t", "1.5min"], "record only, 90 s")
 good("stimulus file", ["stim.sg"], "play the stimulus in stim.sg")
 good("-e text", STIM, "stimulus text given with -e")
-good("-T analog output", STIM + ["-T", "P2"], "plain waveform to P2")
+good("-T analog output", ["-e", WAVE, "-T", "P2"], "plain waveform to P2")
 good("-s seed", STIM + ["-s", "42"], "seed           42")
 good("-s seed zero", STIM + ["-s", "0"], "seed           0")
 good("-p prefix", STIM + ["-p", "cell_3-a.1"], "file prefix    cell_3-a.1")
@@ -412,7 +418,12 @@ def run_case(tmp, case):
     with open(path, "w", newline="") as f:      # newline="": keep \r\n as written
         f.write(cfg)
     with open(os.path.join(tmp, "stim.sg"), "w") as f:
-        f.write("")
+        f.write("sg 2 stimulus\nchannel P1 unit=pA { 1s dc(0) }\n")
+    vc = ("-m" in args and args[args.index("-m") + 1] == "vc") or \
+         ("-m" not in args and re.search(r"^mode\s*=\s*vc", cfg, re.M) is not None)
+    unit = "mV" if vc else "pA"
+    args = [("sg 2 stimulus\nchannel P1 unit=%s { 1s dc(0) }" % unit) if a == "@STIM@" else
+            ("500ms dc(0); 100ms dc(1)" if a == "@WAVE@" else a) for a in args]
     cmd = [LCG2] + (["-c", path] if "-c" not in args and "-h" not in args else []) + args
     # The message names the file as given, so run in the folder with "cfg.ini".
     cmd = [c if c != path else "cfg.ini" for c in cmd]
@@ -437,10 +448,10 @@ def test_examples():
     for path in sorted(os.listdir(os.path.join(ROOT, "examples"))):
         if not path.endswith(".ini"):
             continue
-        p = subprocess.run([LCG2, "-c", os.path.join("examples", path), "-n", "-e", "x"],
+        p = subprocess.run([LCG2, "-c", os.path.join("examples", path), "-n", "examples/step.sg"],
                            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True)
-        want = 1 if path == "bad_rest.ini" else 0
+        want = 1 if path in ("bad_rest.ini", "low_limit.ini") else 0   # refused on purpose
         if p.returncode != want:
             problems.append("examples/%s: exit status %d, expected %d (%s)"
                             % (path, p.returncode, want, p.stderr.strip()[:120]))
@@ -508,7 +519,8 @@ def test_round_trip():
         for flags in ([], ["-P", "swap"], ["-m", "vc"], ["-P", "single", "-m", "vc"]):
             with open(os.path.join(tmp, "a.ini"), "w") as f:
                 f.write(BASE)
-            first = subprocess.run([LCG2, "-c", "a.ini", "-e", "x", "-n", "-v"] + flags,
+            text = "sg 2 stimulus\nchannel P1 unit=%s { 1s dc(0) }" % ("mV" if "vc" in flags else "pA")
+            first = subprocess.run([LCG2, "-c", "a.ini", "-e", text, "-s", "1", "-n", "-v"] + flags,
                                    cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    universal_newlines=True)
             if first.returncode != 0:
@@ -517,7 +529,7 @@ def test_round_trip():
             dumped = first.stdout.split("resolved configuration:\n\n")[1]
             with open(os.path.join(tmp, "b.ini"), "w") as f:
                 f.write(dumped)
-            second = subprocess.run([LCG2, "-c", "b.ini", "-e", "x", "-n", "-v"],
+            second = subprocess.run([LCG2, "-c", "b.ini", "-e", text, "-s", "1", "-n", "-v"],
                                     cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     universal_newlines=True)
             if second.returncode != 0:

@@ -21,10 +21,10 @@
 <text x="465" y="102" font-size="14" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">1  Read and check   (M0, M1)</text>
 <text x="465" y="120.05" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">command line, INI, profiles, units, checks</text>
 <text x="465" y="136.95" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">cli.c  config.c  units.c  main.c</text>
-<rect x="290" y="175" width="350" height="70" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<rect x="290" y="175" width="350" height="70" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
 <text x="465" y="192" font-size="14" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">2  Render with StimGen   (M2)</text>
-<text x="465" y="210.05" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">turns each trial into samples, checks units and clipping</text>
-<text x="465" y="226.95" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">only sg_api_* functions of StimGen 2</text>
+<text x="465" y="210.05" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">trials as samples, units and every sample checked</text>
+<text x="465" y="226.95" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">only sg_api_* of StimGen 2 (stim.c, json.c)</text>
 <rect x="290" y="265" width="350" height="70" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
 <text x="465" y="282" font-size="14" text-anchor="middle" font-weight="bold" fill="#111827" dominant-baseline="central">3  Trial engine   (M3)</text>
 <text x="465" y="308.5" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">schedule, rest values, delays, Ctrl-C = outputs to rest</text>

@@ -25,10 +25,11 @@
 /*
  * main.c -- LCG2: play a StimGen 2 stimulus and record, from the command line.
  *
- * This build is milestones M0 and M1: it reads the command line and the
- * configuration file, applies the rig profile, checks everything, and prints
- * the plan (-n).  Playing and recording arrive in the next milestones; until
- * then a run without -n stops with an explanation and exit status 1.
+ * This build is milestones M0 to M2: it reads the command line and the
+ * configuration file, applies the rig profile, reads the stimulus through
+ * StimGen, checks everything (units, limits, the rate), and prints the plan
+ * (-n).  Playing and recording arrive in the next milestones; until then a run
+ * without -n stops, after all the checks, with an explanation and exit status 1.
  *
  * main() is the only place that prints errors and chooses the exit status.
  * The modules below it return -1 and a message instead.
@@ -36,8 +37,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "cli.h"
 #include "config.h"
+#include "stim.h"
 #include "units.h"
 
 /* Static, not on the stack: the table is a few hundred kilobytes. */
@@ -105,8 +108,99 @@ static int check_plan(const Options *o, const Config *c, Err *err)
     return 0;
 }
 
+/* What reading and checking the stimulus found (for the plan). */
+typedef struct {
+    int     ntrials;
+    int64_t total_samples;        /* over all trials, per channel            */
+    int64_t rate_p, rate_q;       /* the rate of the run                     */
+    Trial   first;                /* the first trial (kept to describe it)   */
+    Map     map[CFG_MAX_OUT];     /* its channel map                         */
+    double  peak[CFG_MAX_OUT];    /* largest |volts| asked, per channel      */
+    int     nwarn;
+} Report;
+
+static Stim   stim;
+static Report report;
+
+/* The text of the stimulus: the file or the -e text.  Owned by the caller of
+ * stim_open, which takes it over. */
+static int load_text(const Options *o, char **text, const char **source, Err *err)
+{
+    if (o->text) {
+        size_t n = strlen(o->text) + 1;
+        *text = (char *)malloc(n);
+        if (!*text) return err_set(err, "out of memory");
+        memcpy(*text, o->text, n);
+        *source = "the -e text";
+        return 0;
+    }
+    *source = o->stimulus;
+    return stim_read_file(o->stimulus, text, err);
+}
+
+/*
+ * Read the stimulus and check all of it, before anything could be played:
+ * render every trial, find the output of every channel, check units and every
+ * sample against the limits.  The first problem stops everything.  (The same
+ * trials are rendered again when they are played; the seeds are fixed, so the
+ * samples are the same.)
+ */
+static int check_stimulus(const Options *o, const Config *c, Err *err)
+{
+    char *text;
+    const char *source;
+    int i, k;
+
+    if (load_text(o, &text, &source, err) < 0) return -1;
+    if (stim_open(&stim, text, source, o, c, err) < 0) return -1;
+
+    for (i = 0; i < stim.n; i++) {
+        Trial t;
+        Map map[CFG_MAX_OUT];
+        double peak[CFG_MAX_OUT] = { 0 };
+
+        if (stim_render(&stim, i, &t, err) < 0) return -1;
+        if (i == 0) {
+            report.rate_p = t.rate_p;
+            report.rate_q = t.rate_q;
+        } else if (t.rate_p != report.rate_p || t.rate_q != report.rate_q) {
+            trial_free(&t);
+            return err_set(err, "%s: trial %s has another sampling rate than the first trial",
+                           stim.source, t.name);
+        }
+        if (stim_map(&stim, &t, o, c, map, err) < 0 ||
+            stim_check(&t, map, c, peak, err) < 0) {
+            trial_free(&t);
+            return -1;
+        }
+        for (k = 0; k < t.nwarn; k++) {
+            report.nwarn++;
+            if (!o->quiet)
+                fprintf(stderr, "lcg2: warning: %s%s%s: %s\n", stim.source,
+                        t.info ? " trial " : "", t.info ? t.name : "", t.warn[k]);
+        }
+        if (o->verbose)
+            fprintf(stderr, "lcg2: trial %s: %lld samples, seed %s\n", t.name,
+                    (long long)t.n, t.seed);
+        report.total_samples += t.n;
+        for (k = 0; k < t.nch; k++)
+            if (peak[k] > report.peak[k]) report.peak[k] = peak[k];
+        if (i == 0) {
+            report.first = t;
+            memcpy(report.map, map, sizeof map);
+        } else {
+            trial_free(&t);
+        }
+    }
+    report.ntrials = stim.n;
+
+    /* The rate of the stimulus has to be possible on this board too. */
+    return config_check_rate(c, report.rate_p, report.rate_q, err);
+}
+
 /* Print what would happen, in words (the answer to -n, on stdout). */
-static void print_plan(const Options *o, const Table *t, const Config *c)
+static void print_plan(const Options *o, const Table *t, const Config *c,
+                       const Report *rep)
 {
     int i, m = MODE_INDEX(c->mode);
     char r[48];
@@ -119,7 +213,13 @@ static void print_plan(const Options *o, const Table *t, const Config *c)
            c->device == DEV_NEURON ? "  (NEURON simulator)" : "");
     printf("  mode           %s\n", config_mode_name(c->mode));
 
-    if (o->has_rate) {
+    if (rep && rep->ntrials) {                      /* the stimulus has been read */
+        units_format_rate(r, sizeof r, rep->rate_p, rep->rate_q);
+        printf("  rate           %s (%s)\n", r,
+               o->has_rate ? "from -r" :
+               stim.rate_arg[0] ? "from the configuration; the stimulus states none"
+                                : "stated by the stimulus");
+    } else if (o->has_rate) {
         units_format_rate(r, sizeof r, o->rate_p, o->rate_q);
         printf("  rate           %s (from -r)\n", r);
     } else if (c->has_rate) {
@@ -130,18 +230,61 @@ static void print_plan(const Options *o, const Table *t, const Config *c)
         printf("  rate           from the stimulus (none in -r or the "
                "configuration)\n");
     }
-    printf("  seed           %s\n", o->seed ? o->seed : "drawn at the start and recorded");
+    if (rep && rep->ntrials && stim.is_protocol)
+        printf("  seed           protocol seed %s (%s)\n", stim.protocol_seed,
+               o->seed ? "from -s" : "drawn now; recorded");
+    else if (rep && rep->ntrials)
+        printf("  seed           %s (%s)\n", stim.seed_arg,
+               o->seed ? "from -s" : "drawn now; recorded");
+    else
+        printf("  seed           %s\n", o->seed ? o->seed : "drawn at the start and recorded");
 
     if (o->has_duration)
         printf("  work           record only, %.6g s\n",
                (double)o->duration_ps / 1e12);
     else if (o->stimulus)
-        printf("  work           play the stimulus in %s (read and checked from M2 on)\n",
-               o->stimulus);
+        printf("  work           play the stimulus in %s\n", o->stimulus);
     else
         printf("  work           play the stimulus text given with -e\n");
     if (o->target) printf("  target         plain waveform to %s (-T)\n", o->target);
     if (o->prefix) printf("  file prefix    %s\n", o->prefix);
+
+    if (rep && rep->ntrials) {
+        const Trial *f = &rep->first;
+        char idle[200] = "";
+        int k, j;
+
+        if (stim.is_protocol)
+            printf("  stimulus       a protocol of %d trials: %s, start %s; each trial %lld "
+                   "samples (%.6g s)\n", rep->ntrials, stim.timing, stim.start,
+                   (long long)f->n, (double)f->n / f->rate);
+        else
+            printf("  stimulus       %s with %d channel(s), %lld samples (%.6g s)\n",
+                   stim.waveform ? "a plain waveform" : "a stimulus", f->nch,
+                   (long long)f->n, (double)f->n / f->rate);
+        for (k = 0; k < f->nch; k++) {
+            const OutCh *oc = &c->out[rep->map[k].out];
+            printf("  %-14s %s (%s)  ->  [out %s] on %s", k ? "" : "channels",
+                   stim.waveform ? "waveform" : f->ch[k].name,
+                   f->ch[k].digital ? "digital" : f->ch[k].unit, oc->name, oc->line);
+            if (!oc->digital) {
+                printf(", peak %.4g V", rep->peak[k]);
+                if (oc->has_limit) printf(" of the limit %g V", oc->limit);
+            }
+            printf("\n");
+        }
+        for (j = 0; j < c->n_out; j++) {
+            int named = 0;
+            for (k = 0; k < f->nch; k++) named |= rep->map[k].out == j;
+            if (!named && !c->out[j].skip) {
+                if (idle[0]) strncat(idle, ", ", sizeof idle - strlen(idle) - 1);
+                strncat(idle, c->out[j].name, sizeof idle - strlen(idle) - 1);
+            }
+        }
+        if (idle[0]) printf("  %-14s %s (not named: they hold their rest value)\n", "idle", idle);
+        printf("  %-14s %d trial(s) rendered and checked: no sample clips%s\n", "check",
+               rep->ntrials, rep->nwarn ? " (StimGen warnings were printed)" : "");
+    }
 
     printf("\n  outputs\n");
     for (i = 0; i < c->n_out; i++) {
@@ -194,9 +337,10 @@ int main(int argc, char **argv)
         return fail(&err);
     if (config_build(&table, opt.mode, &config, &err) < 0) return fail(&err);
     if (check_plan(&opt, &config, &err) < 0) return fail(&err);
+    if (!opt.has_duration && check_stimulus(&opt, &config, &err) < 0) return fail(&err);
 
     if (opt.dry) {
-        print_plan(&opt, &table, &config);
+        print_plan(&opt, &table, &config, &report);
         if (opt.verbose) {
             printf("\nresolved configuration:\n\n");
             config_dump(&table, stdout);
@@ -205,6 +349,7 @@ int main(int argc, char **argv)
     }
 
     fprintf(stderr, "lcg2: playing and recording are not implemented yet in this "
-            "build (milestones M0 and M1); use -n to check a configuration\n");
+            "build (milestones M0 to M2: the stimulus was read and checked); use -n to "
+            "see the plan\n");
     return 1;
 }

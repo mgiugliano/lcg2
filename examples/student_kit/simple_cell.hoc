@@ -1,0 +1,11 @@
+// A hoc template for LCG2:  [cell P1] model = simple_cell.hoc  template = SimpleCell
+begintemplate SimpleCell
+public soma, dend
+create soma, dend[2]
+proc init() {
+    soma { L = 20  diam = 20  insert hh }
+    forsec "dend" { L = 100  diam = 1.5  nseg = 5  insert pas  g_pas = 0.0001  e_pas = -65 }
+    connect dend[0](0), soma(1)
+    connect dend[1](0), soma(0)
+}
+endtemplate SimpleCell

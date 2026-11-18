@@ -76,7 +76,7 @@ int main(int argc, char **argv)
     rc = session_prepare(&session, n, args, &err);
     if (rc < 0) { fprintf(stderr, "lcg2: %s\n", err.msg); return 1; }
     if (rc == 1) return 0;
-    if (session.opt.dry) { session_print_plan(&session); return 0; }
+    if (session.opt.dry) { Err pe; pe.msg[0] = 0; return session_print_plan(&session, &pe) < 0 ? 1 : 0; }
 
     run_params_default(&rp, &session);
     if (noise >= 0) rp.sim.noise_sd = noise;

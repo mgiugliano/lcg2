@@ -72,7 +72,7 @@ project contributed ideas (the INI file, the run folder), not code.
 | Calling StimGen to render trials; channel map, unit and clipping checks of every sample; the volts for the backend | **Built** (M2) |
 | Trial engine: timing rules, rest values, Ctrl-C, streaming of the inputs | **Built** (M3) |
 | Built-in loopback simulator (`device = sim`) | **Built** (M3) |
-| NEURON simulator backend with virtual cells and synapses | **Designed** (M3b) |
+| NEURON simulator backend with virtual cells and synapses | **Built** (M3b) |
 | HDF5 recording and the run folder | **Built** (M4) |
 | NI-DAQmx backend for the USB-6343 | **Designed**, on hold (host undecided) |
 

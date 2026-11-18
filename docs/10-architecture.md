@@ -182,8 +182,8 @@ end, and `start on trigger` waits for a trigger *per trial* after that. All time
 ### `main.c`
 
 `main()` reads, checks (the configuration, then the whole stimulus, trial by trial), and either prints
-the plan (`-n`) or runs the trials on the loopback simulator (`do_run`), refusing `neuron` and board
-devices with a message for now. The `Table`, `Config`, `Stim` and report are `static`.
+the plan (`-n`) or runs the trials on the loopback simulator or the NEURON simulator (`run_execute`), refusing
+board devices with a message for now. The `Table`, `Config`, `Stim` and report are `static`.
 
 ## How the build works
 
@@ -239,7 +239,7 @@ and a comparison of the rate and duration parsers with StimGen's own.
 | Milestone | Where it goes |
 |:--|:--|
 | M4 recording (built) | `record.c` is the `Sink` that writes the HDF5 file as blocks arrive; `archive.c` the hidden folder, log and checksums; `run.c` the order of events; `session.c` what `main.c` did before; `sha256.c`; `platform.c` gained `mkdir`, free space, local stamp |
-| M3b NEURON | `backend_neuron.c` (child process and pipes, POSIX only) and `lcg2_neuron.py` |
+| M3b NEURON (built) | `backend_neuron.c` (child process and pipes, POSIX only; `platform_spawn`, `platform_read_exact`, `platform_child_stop`) and `neuron/lcg2_neuron.py` (the adapter); see [14](14-neuron-models.md) |
 | M6 DAQmx | `backend_daqmx.c`; the Mac build uses a stub `NIDAQmx.h` |
 
 ## Style

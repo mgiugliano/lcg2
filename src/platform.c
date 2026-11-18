@@ -33,12 +33,16 @@
 #endif
 
 #include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #include "platform.h"
@@ -197,4 +201,156 @@ int clock_wait_until(Clock *c, int64_t t)
         if (left <= 0) return 1;
         return platform_sleep_ns(left);
     }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* A child process on two pipes                                        */
+/* ------------------------------------------------------------------ */
+
+void platform_ignore_sigpipe(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGPIPE, &sa, NULL);
+}
+
+int platform_spawn(char *const argv[], const char *stderr_path, long *pid, int *to_child, int *from_child,
+                   char *msg, size_t n)
+{
+    int in[2], out[2];
+    pid_t p;
+
+    if (pipe(in) < 0) {
+        snprintf(msg, n, "cannot make a pipe: %s", strerror(errno));
+        return -1;
+    }
+    if (pipe(out) < 0) {
+        snprintf(msg, n, "cannot make a pipe: %s", strerror(errno));
+        close(in[0]); close(in[1]);
+        return -1;
+    }
+    p = fork();
+    if (p < 0) {
+        snprintf(msg, n, "cannot start a process: %s", strerror(errno));
+        close(in[0]); close(in[1]); close(out[0]); close(out[1]);
+        return -1;
+    }
+    if (p == 0) {                                   /* the child */
+        int fd;
+        setpgid(0, 0);                              /* its own group: Ctrl-C is for LCG2 */
+        dup2(in[0], 0);
+        dup2(out[1], 1);
+        fd = open(stderr_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) dup2(fd, 2);
+        for (fd = 3; fd < 256; fd++) close(fd);
+        execvp(argv[0], argv);
+        fprintf(stderr, "cannot run %s: %s\n", argv[0], strerror(errno));
+        _exit(127);
+    }
+    setpgid(p, p);                                  /* (also from the parent, to avoid a race) */
+    close(in[0]);
+    close(out[1]);
+    *pid = (long)p;
+    *to_child = in[1];
+    *from_child = out[0];
+    return 0;
+}
+
+int platform_read_exact(int fd, void *buf, size_t n, int64_t timeout_ms)
+{
+    char *p = (char *)buf;
+    size_t got = 0;
+    int64_t waited = 0;
+
+    while (got < n) {
+        struct pollfd pf;
+        int r;
+        if (platform_abort_requested()) return -3;
+        pf.fd = fd; pf.events = POLLIN; pf.revents = 0;
+        r = poll(&pf, 1, 100);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (r == 0) {
+            waited += 100;
+            if (timeout_ms >= 0 && waited >= timeout_ms) return -2;
+            continue;
+        }
+        {
+            ssize_t k = read(fd, p + got, n - got);
+            if (k < 0) {
+                if (errno == EINTR) continue;
+                return -1;
+            }
+            if (k == 0) return 0;
+            got += (size_t)k;
+            waited = 0;
+        }
+    }
+    return 1;
+}
+
+int platform_write_all(int fd, const void *buf, size_t n)
+{
+    const char *p = (const char *)buf;
+    while (n > 0) {
+        ssize_t k = write(fd, p, n);
+        if (k < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += k;
+        n -= (size_t)k;
+    }
+    return 0;
+}
+
+int platform_child_stop(long pid, int to_child, int from_child, int grace_ms)
+{
+    int status = 0, waited = 0, done = 0;
+    pid_t r;
+
+    if (pid <= 0) return -1;
+    if (to_child >= 0) close(to_child);              /* end of input: a well-behaved child ends by itself */
+    if (from_child >= 0) close(from_child);
+    for (;;) {
+        r = waitpid((pid_t)pid, &status, WNOHANG);
+        if (r == (pid_t)pid) { done = 1; break; }
+        if (r < 0 && errno != EINTR) return -1;
+        if (waited >= grace_ms) break;
+        if (waited == grace_ms / 2) kill((pid_t)pid, SIGTERM);
+        {
+            struct timespec ts;                      /* not platform_sleep_ns: an abort must not cut this short */
+            ts.tv_sec = 0; ts.tv_nsec = 10 * 1000000L;
+            nanosleep(&ts, NULL);
+        }
+        waited += 10;
+    }
+    if (!done) {
+        kill((pid_t)pid, SIGKILL);
+        while (waitpid((pid_t)pid, &status, 0) < 0 && errno == EINTR) {}
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return -1;
+}
+
+int platform_temp_file(char *path, size_t n)
+{
+    const char *tmp = getenv("TMPDIR");
+    int fd;
+    if (snprintf(path, n, "%s/lcg2_XXXXXX", tmp && *tmp ? tmp : "/tmp") >= (int)n) return -1;
+    fd = mkstemp(path);
+    if (fd < 0) return -1;
+    close(fd);
+    return 0;
+}
+
+void platform_delete_file(const char *path)
+{
+    unlink(path);
 }

@@ -152,10 +152,10 @@ good("calibration keys", STIM, "P1",
      cfg=edit("limit = 5", "limit = 5\ncal_offset = 0.01\ncal_scale = 1.002"))
 good("DIFF input", STIM, "DIFF",
      cfg=edit("line = ai0", "line = ai0\nterminal = DIFF"))
-good("neuron device with cells ignored by the plan",
-     STIM, "NEURON simulator",
-     cfg=edit("device = sim", "device = neuron\nsim_script = model.py")
-     + "\n[cell P1]\nmodel = hh_soma\n")
+good("cell and synapse sections are accepted (and ignored) on device = sim, so one file serves both",
+     STIM, "P1",
+     cfg=edit("rate = 20kHz", "rate = 20kHz")
+     + "\n[cell P1]\nmodel = hh_soma\n[cell P2]\nmodel = hh_soma\n[synapse P1_P2]\npre = P1\npost = P2\n")
 good("daqmx device name", STIM, "Dev1", cfg=edit("device = sim", "device = Dev1"))
 cases.append(("-h", BASE, ["-h"], 0, "usage: lcg2", "out"))   # no -n added
 
@@ -303,8 +303,18 @@ bad("trigger lower case", STIM, "expected PFI0 ... PFI15",
     cfg=edit("rate = 20kHz", "rate = 20kHz\ntrigger = pfi1"))
 bad("sim_script without neuron", STIM, "only used with device = neuron",
     cfg=edit("rate = 20kHz", "rate = 20kHz\nsim_script = m.py"))
-bad("neuron without sim_script", STIM, "device = neuron needs sim_script",
+bad("neuron: needs at least one cell", STIM, "needs at least one [cell NAME]",
     cfg=edit("device = sim", "device = neuron"))
+bad("neuron: a pipette needs a cell of its name", STIM, "has no [cell P1]",
+    cfg=edit("device = sim", "device = neuron") + "\n[cell Q]\nmodel = hh_soma\n")
+bad("neuron: a synapse needs pre", STIM, "needs pre = NAME",
+    cfg=edit("device = sim", "device = sim") + "\n[cell P1]\n[synapse S]\npost = P1\n")
+bad("neuron: a synapse names an unknown cell", STIM, "'Z' is not a [cell] of this file",
+    cfg=edit("device = sim", "device = sim") + "\n[cell P1]\n[synapse S]\npre = P1\npost = Z\n")
+bad("neuron: unknown synapse key", STIM, "unknown key (allowed: pre, post, type",
+    cfg=edit("device = sim", "device = sim") + "\n[cell P1]\n[cell P2]\n[synapse S]\npre = P1\npost = P2\nspeed = 3\n")
+bad("sim_dt without neuron", STIM, "only used with device = neuron",
+    cfg=edit("rate = 20kHz", "rate = 20kHz\nsim_dt = 25us"))
 
 # [out]
 bad("out without line", STIM, "line is required", cfg=edit("line = ao0\n", ""))
@@ -452,6 +462,14 @@ def test_examples():
                            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True)
         want = 1 if path in ("bad_rest.ini", "low_limit.ini") else 0   # refused on purpose
+        text = open(os.path.join(ROOT, "examples", path)).read()
+        if "device     = neuron" in text or "device = neuron" in text:
+            # a dry run of a neuron rig builds its cells for real: it needs the sim_python of the file
+            py = [l.split("=", 1)[1].split(";")[0].strip() for l in text.splitlines() if l.startswith("sim_python")]
+            if not py or subprocess.run([py[0], "-c", "import neuron"], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL).returncode != 0:
+                print("      (skipped examples/%s: its sim_python has no NEURON; tests/test_neuron.py covers it)" % path)
+                continue
         if p.returncode != want:
             problems.append("examples/%s: exit status %d, expected %d (%s)"
                             % (path, p.returncode, want, p.stderr.strip()[:120]))

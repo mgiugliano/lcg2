@@ -252,12 +252,12 @@ never overwrites another. The hidden folder also holds `provenance.json` and `SH
 ## 9. Backends: simulator and board
 
 LCG2 does not talk to the board directly. It talks to a **backend** through one
-small interface: write outputs, read inputs. Three backends are planned:
+small interface: write outputs, read inputs. Three backends:
 
 | `device =` | Backend | Status |
 |:--|:--|:--|
 | `sim` | built-in loopback: each output feeds the input of the same number, plus noise | **Built** (M3) |
-| `neuron` | the NEURON simulator, with virtual cells and synapses | Designed (M3b) |
+| `neuron` | the NEURON simulator, with virtual cells and synapses (see [14](14-neuron-models.md)) | **Built** (M3b) |
 | a board name (`Dev1`) | NI-DAQmx on the USB-6343 | Designed, on hold |
 
 Everything above the backend (command line, config, rendering, trial engine,

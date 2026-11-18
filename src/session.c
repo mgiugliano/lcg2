@@ -35,6 +35,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "backend_neuron.h"
+#include "platform.h"
 #include "session.h"
 #include "units.h"
 
@@ -181,7 +183,7 @@ static int check_stimulus(Session *s, Err *err)
 }
 
 /* Print what would happen, in words (the answer to -n, on stdout). */
-void session_print_plan(const Session *s)
+int session_print_plan(const Session *s, Err *err)
 {
     const Options *o = &s->opt;
     const Table *t = &s->table;
@@ -299,10 +301,26 @@ void session_print_plan(const Session *s)
             printf("    %-8s <- %s  %g %s per volt, range %g V, %s\n", ic->name,
                    ic->line, ic->gain[m], ic->unit[m], ic->range, ic->terminal);
     }
-    if (c->device == DEV_NEURON)
-        printf("\n  virtual preparation: %d cell(s), %d synapse(s) (checked later)\n",
-               c->n_cells, c->n_synapses);
+    if (c->device == DEV_NEURON) {
+        /* Build the cells for real (not play anything): it is the only way to know that the model files
+         * are found, run, and give sections where the electrodes are meant to be. */
+        NeuronOpts no;
+        char script[1200], logpath[300];
+        int have_log;
+        memset(&no, 0, sizeof no);
+        neuron_script_path(c, script, sizeof script);
+        have_log = platform_temp_file(logpath, sizeof logpath) == 0;
+        if (!have_log) strcpy(logpath, "/dev/null");
+        no.python = c->sim_python; no.script = script; no.stderr_path = logpath;
+        fflush(stdout);
+        if (neuron_check(&no, c, err) < 0) {
+            if (have_log) platform_delete_file(logpath);
+            return -1;
+        }
+        if (have_log) platform_delete_file(logpath);
+    }
     printf("\nnothing was played.\n");
+    return 0;
 }
 
 

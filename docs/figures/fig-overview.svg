@@ -37,7 +37,7 @@
 <rect x="270" y="480" width="120" height="56" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
 <text x="330" y="499.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">built-in</text>
 <text x="330" y="516.45" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">loopback</text>
-<rect x="405" y="480" width="130" height="56" rx="9" fill="#f3f4f6" stroke="#6b7280" stroke-width="2" stroke-dasharray="7 4"/>
+<rect x="405" y="480" width="130" height="56" rx="9" fill="#e6f4ea" stroke="#1b7f3b" stroke-width="2"/>
 <text x="470" y="499.55" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">NEURON</text>
 <text x="470" y="516.45" font-size="13" text-anchor="middle" font-weight="normal" fill="#111827" dominant-baseline="central">simulator (M3b)</text>
 <rect x="550" y="480" width="160" height="56" rx="9" fill="#fdf2e0" stroke="#b45309" stroke-width="2" stroke-dasharray="7 4"/>

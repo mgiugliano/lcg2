@@ -59,8 +59,10 @@ where they come from. The wording is checked by the test table.
 | `expected cc or vc, got '...'` | fix `mode =` |
 | `'...' is not a rate (examples: 20kHz, 10000, 2.5Hz)` | fix `rate =` (no space before the unit) |
 | `expected PFI0 ... PFI15, got '...'` | fix `trigger =` (upper case) |
-| `device = neuron needs sim_script (the model script)` | add `sim_script =` |
-| `only used with device = neuron` | remove `sim_script` or `sim_python`, or set `device = neuron` |
+| `only used with device = neuron` | remove the `sim_*` key, or set `device = neuron` |
+| `device = neuron needs at least one [cell NAME] section` / `[out P1] has no [cell P1]` | give every pipette a cell of its name |
+| `needs pre = NAME ...` / `'Z' is not a [cell] of this file` / `unknown key (allowed: pre, post, ...)` | a `[synapse]` mistake |
+| the messages of the NEURON adapter (`cannot import NEURON`, `... is not a parameter of the model ...`, `... does not exist ...`, `the NEURON adapter stopped ...`) | see the table in [14 Virtual cells](14-neuron-models.md#when-it-goes-wrong) |
 
 ## `[out NAME]` and `[in NAME]`
 
@@ -146,7 +148,6 @@ Idle values of skipped outputs are not checked.
 
 | Message (shortened) | What it means | What to do |
 |:--|:--|:--|
-| `device = neuron is not implemented yet (milestone M3b); use device = sim` | the NEURON backend is not built | use `device = sim` for now |
 | `device 'Dev1': there is no hardware backend yet (milestone M6, ...)` | no board backend is built | use `device = sim` |
 | `no sampling rate: give -r RATE or write rate = in [rig]` | `-t` needs a rate and none is given | add one |
 | `-t: the duration is shorter than one sample, or too long` | `-t` rounds to whole samples | give a longer duration, or a higher rate |

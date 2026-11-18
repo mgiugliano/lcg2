@@ -7,15 +7,15 @@ inputs at the same time. It is a stripped-down successor of the LCG software,
 written in ISO C99, with no dynamic clamp and no real-time kernel.
 
 > **Where the project stands (read this first).**
-> Milestones M0 to M4 are built and tested: the program reads the command line
+> Milestones M0 to M4 and M3b are built and tested: the program reads the command line
 > and the configuration file, applies rig profiles, reads your stimulus through
 > StimGen, checks every sample, and **plays the trials on a built-in loopback
 > simulator**: with exact timing (period, gap, trigger), outputs held at rest
 > between trials and on every way out, Ctrl-C handled safely, and the inputs
 > recorded: **each run writes an HDF5 data file and a hidden run folder** (M4, see
-> [13 Data format](13-data-format.md)). The
-> NEURON simulator is M3b, and the board is M6: those are designed and
-> documented here, but not written. Every page says
+> [13 Data format](13-data-format.md)). **`device = neuron` plays the stimulus into virtual
+> cells you describe in the configuration** (M3b, see [14 Virtual cells](14-neuron-models.md)). The board is M6: designed
+> and documented here, but not written. Every page says
 > which parts are *built* and which are *designed*. The status of each piece is
 > shown with the same marks everywhere:
 >
@@ -29,6 +29,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | You are... | Read, in this order |
 |:--|:--|
 | A user who wants to try it | [02 Quick start](02-quickstart.md), then [03 Tutorials](03-tutorials.md) |
+| A student training on virtual cells | [`examples/student_kit/`](../examples/student_kit/), then [14 Virtual cells](14-neuron-models.md) |
 | A user writing a rig configuration | [06 Configuration reference](06-config-reference.md), then [04 Concepts](04-concepts.md) |
 | A user with an error message | [12 Error messages](12-error-messages.md) |
 | A user who wants to analyse a recording | [13 Data format](13-data-format.md) |
@@ -52,6 +53,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
 | [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
+| [14 Virtual cells](14-neuron-models.md) | `device = neuron`: describe cells and synapses in the configuration, bring your own models, train in patching |
 
 ## Figures
 

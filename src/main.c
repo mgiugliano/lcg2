@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     if (rc == 1) return 0;                    /* the help was printed */
 
     if (session.opt.dry) {
-        session_print_plan(&session);
+        if (session_print_plan(&session, &err) < 0) return fail(&err);
         if (session.opt.verbose) {
             printf("\nresolved configuration:\n\n");
             config_dump(&session.table, stdout);

@@ -1,0 +1,10 @@
+sg 2 stimulus
+# A short strong pulse into P1 makes it fire; look at what P2 does afterwards (use rig_pair.ini).
+rate 20kHz
+
+channel P1 unit=pA {
+    50ms   dc(0)
+    @pulse
+    2ms    dc(1500)
+    148ms  dc(0)
+}

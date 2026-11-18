@@ -8,7 +8,11 @@ used by the tutorials in [`../docs/03-tutorials.md`](../docs/03-tutorials.md), a
 |:--|:--|
 | `single_pipette.ini` | the smallest rig: one pipette, both modes |
 | `lcg2.ini` | a two-pipette rig with a digital line and two profiles (`single`, `swap`) |
-| `neuron_pair.ini` | two virtual cells and a synapse: a *design preview* for the NEURON backend (M3b) |
+| `neuron_single.ini` | one virtual HH cell on the NEURON simulator (set `sim_python` to a Python with NEURON) |
+| `neuron_pair.ini` | two virtual cells and a synapse on the NEURON simulator |
+| `student_kit/` | a self-contained package for training in patching on virtual cells: rigs, stimuli, models, an analysis script and exercises |
+| `models/` | model files for the NEURON backend: Python, hoc, SWC, biophysics, init, `.mod` |
+| `read_run.py` | reads and summarises a data file (needs h5py) |
 | `bad_rest.ini` | a deliberately wrong configuration (idle value above the limit); LCG2 refuses it at load |
 | `low_limit.ini` | a deliberately tight limit (0.1 V): LCG2 refuses `step.sg` because its samples clip |
 | `step.sg` | one current step (200 pA) on channel `P1`, for current clamp |

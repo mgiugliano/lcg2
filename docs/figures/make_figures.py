@@ -112,7 +112,7 @@ def overview():
         s.arrow(465, y, 465, y + 20)
     # backends
     s.box(270, 480, 120, 56, "built-in\nloopback", "built", size=13, title=None)
-    s.box(405, 480, 130, 56, "NEURON\nsimulator (M3b)", "plan", size=13)
+    s.box(405, 480, 130, 56, "NEURON\nsimulator (M3b)", "built", size=13)
     s.box(550, 480, 160, 56, "NI USB-6343\n(M6, host undecided)", "wait", size=13)
     s.arrow(330, 425, 330, 480)
     s.arrow(470, 425, 470, 480)
@@ -279,7 +279,7 @@ def milestones():
         ("M1", "config, profiles,\nCLI, -n dry run", "built"),
         ("M2", "StimGen integration,\nunits, clip check", "built"),
         ("M3", "trial engine,\nloopback simulator", "built"),
-        ("M3b", "NEURON backend\n(virtual cells)", "plan"),
+        ("M3b", "NEURON backend\n(virtual cells)", "built"),
         ("M4", "HDF5 + run folder,\nlog, checksums", "built"),
         ("M5", "simulator test\nsuite", "plan"),
     ]
@@ -296,7 +296,7 @@ def milestones():
         x += 170
     s.text(470, 315, "hardware: waits for the rig host (USB-6343 is not supported by NI-DAQmx on Linux)", size=13, fill=GREY)
     s.save("fig-milestones.svg", "Milestones",
-           "M0 and M1 are built. M2 to M5 are software-only milestones to do. S1, M6 and M7 need the hardware host to be decided; M8 is documentation.")
+           "M0 to M4 and M3b are built. M5, the simulator test suite as a whole, is the remaining software milestone. S1, M6 and M7 need the hardware host to be decided; M8 is documentation.")
 
 
 def stimgen_flow():
@@ -324,6 +324,29 @@ def stimgen_flow():
            "A protocol is expanded into trials, each trial is rendered, LCG2 checks units and limits for all trials, then the engine plays them one by one through a backend and the HDF5 writer and archive record them.")
 
 
+def neuron_flow():
+    s = Svg(940, 360)
+    s.text(470, 24, "device = neuron: how lcg2 and NEURON talk (built, M3b)", size=17, weight="bold")
+    s.box(20, 60, 190, 100, "stimulus -> volts\ninverse of the amplifier\n(gain, calibration)", "built", size=12, title="lcg2 (C)")
+    s.box(280, 60, 190, 100, "JSON line + raw floats\npA / mV / ns\nblocks of 0.1 s", "built", size=12, title="two pipes")
+    s.box(540, 60, 180, 100, "builds the cells from\n[cell] and [synapse],\nsteps them sample by sample", "built", size=12, title="lcg2_neuron.py")
+    s.box(770, 60, 150, 100, "your model:\nbuilt in, .py, .hoc,\n.swc, .mod", "blue", size=12, title="NEURON")
+    s.arrow(210, 100, 280, 100)
+    s.arrow(470, 100, 540, 100)
+    s.arrow(720, 100, 770, 100)
+    s.arrow(770, 135, 720, 135, dash=True)
+    s.arrow(540, 135, 470, 135, dash=True)
+    s.arrow(280, 135, 210, 135, dash=True)
+    s.text(245, 90, "command", size=11, fill=GREY)
+    s.text(245, 150, "measured", size=11, fill=GREY)
+    s.box(20, 215, 190, 90, "HDF5 file + run folder\nnetwork.json, model files,\nneuron.log, SHA256SUMS", "built", size=12, title="what is kept")
+    s.arrow(115, 160, 115, 215)
+    s.box(280, 215, 440, 90, "a trial: advance through the pause at rest values,\nthen block by block: set the command, take the steps,\nread the electrodes. The cells keep their state.", "built", size=12, title="time")
+    s.text(470, 335, "A pipette P1 is attached to [cell P1]; mV commands clamp voltage, pA commands inject current.", size=12, fill=GREY)
+    s.save("fig-neuron.svg", "NEURON backend",
+           "lcg2 converts the stimulus volts back to pA or mV, sends them through two pipes to lcg2_neuron.py, which steps the NEURON cells and returns what the electrodes measure; lcg2 turns that back into volts and records it.")
+
+
 if __name__ == "__main__":
-    overview(); signal_chain(); layers(); timeline(); multipatch(); milestones(); stimgen_flow()
+    overview(); signal_chain(); layers(); timeline(); multipatch(); milestones(); stimgen_flow(); neuron_flow()
     print("figures written to", HERE)

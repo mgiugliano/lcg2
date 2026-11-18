@@ -4,7 +4,7 @@ LCG2 0.0.1, dry run: the plan
   device         sim  (built-in loopback simulator)
   mode           cc
   rate           20 kHz (stated by the stimulus)
-  seed           7743567922664099781 (drawn for this check; a run draws its own unless you give -s)
+  seed           11584930258241661433 (drawn for this check; a run draws its own unless you give -s)
   work           play the stimulus in examples/step.sg
   stimulus       a stimulus with 1 channel(s), 40000 samples (2 s)
   channels       P1 (pA)  ->  [out P1] on ao0, peak 0.5 V of the limit 5 V

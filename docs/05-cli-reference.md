@@ -96,8 +96,8 @@ $ ./lcg2 -c rig.ini -n -v stimulus.sg            # check, print the plan and the
 ```
 
 A run without `-n` reads the stimulus and does **all** the checks, and then plays the
-trials on the loopback simulator (`device = sim`). `device = neuron` is refused until
-milestone M3b, and a board name until the hardware backend (M6). A run writes
+trials on the loopback simulator (`device = sim`) or the NEURON simulator (`device = neuron`; with `-n` it
+builds the cells and prints them, see [14](14-neuron-models.md)). A board name is refused until the hardware backend (M6). A run writes
 `[PREFIX_]YYYYMMDD_HHMMSS.h5` and the hidden folder `.[PREFIX_]YYYYMMDD_HHMMSS/` in the current folder
 (see [13 Data format](13-data-format.md)); before it creates anything it checks the free space (exit
 status 1, "nothing was written", if short). If the integrity record cannot be written the status is 2.

@@ -1,8 +1,8 @@
 # LCG2 specification (working draft 5)
 
 Status: interview done; reviewed by an independent Opus 5.5 reviewer on
-2026-11-18, and its findings are applied here. Milestones M0 to M4 are built
-and tested (section 12); sections 4a to 4d record the choices made while building them. Items under "Decided" are the
+2026-11-18, and its findings are applied here. Milestones M0 to M4 and M3b are built
+and tested (section 12); sections 4a to 4e record the choices made while building them. Items under "Decided" are the
 owner's choices. Items under "Defaults" are assumptions the owner may veto.
 Items under "Verify on hardware" are untested beliefs about the board and driver.
 
@@ -325,6 +325,58 @@ a key outside a section, a line over 999 characters: all errors, with
 
 Report upstream: StimGen leaks about 11 KB per rendered trial.
 
+### 4e. The NEURON backend as built (M3b)
+
+What differs from section 11 as it was first drafted, and what was added at the owner's request (virtual
+cells from the user's own morphology, biophysics and initialisation code, so that a student can train on them
+without knowing NEURON):
+
+- **Framing.** Not `.sgb` records: one JSON line, then raw native-endian float64 (StimGen's `.sgb` encoder is not
+  part of its `sg_api_*`, and the adapter would only need to read it back). Units on the pipe: pA, mV, ns.
+- **Boundary.** LCG2 inverts the output's calibration and gain on the Drive volts to get pA or mV, the cells answer
+  in pA or mV, and the input's gain and calibration turn that into the volts the board would have read, clamped to
+  the input range and counted. SPEC 11 said "gains bypassed"; this keeps every path above the backend identical to
+  the board's and is **vetoable**.
+- **Electrodes by unit.** A command in a current unit drives an `IClamp`, in a voltage unit a `SEClamp`
+  (`series_resistance`, MOhm, default 1); an input in a voltage unit records the membrane potential at the
+  electrode, in a current unit the electrode current. No `mode` logic in the backend.
+- **Sample timing.** Sample *i* of an input is the value at the end of sample interval *i*, after command sample *i*
+  was applied for the whole interval; the interval is divided into the fewest equal steps not above `sim_dt`
+  (default 25 us). Verified against a plain NEURON `IClamp` script to 1e-9 mV (measured 1e-14).
+- **Time.** Virtual by default; `-R` follows the clock. Between trials the cells advance through the pause
+  (`clock_now` minus the end of the previous trial) at the rest values, so state carries over. Blocks of 0.1 s
+  (abort, `incomplete` and streaming unchanged).
+- **`[rig]` keys:** `sim_python` (default `python3`), `sim_script` (now optional: the adapter that ships with LCG2,
+  its place baked in by the Makefile), `sim_dt`, `sim_celsius` (6.3), `sim_v_init` (-65), `sim_settle` (0).
+- **`[cell NAME]` keys:** `model` (`hh_soma`, `ball_and_stick`, a `.py` or `.hoc` file), `template`, `morphology`
+  (`.swc`, `.asc`), `biophysics` (`passive`, `hh_soma`, or a file), `init` (a file, run after initialisation),
+  `mechanisms` (a folder of `.mod`, compiled once into `~/.cache/lcg2/neuron/<digest>`, or `$LCG2_CACHE`),
+  `electrode` (`soma(0.5)`), `series_resistance`, `d_lambda`; any other key is a parameter of the model (an error
+  if the model does not take it). Relative paths start **in the folder of the configuration file** (owner's choice;
+  `use`/`file()` in a stimulus still start in the current folder).
+- **`[synapse NAME]` keys:** `pre`, `post`, `type` (`exp`, `exp2`), `weight` (uS), `delay`, `tau`, `tau1`, `tau2`,
+  `e`, `threshold`, `pre_location`, `post_location`.
+- **Checks.** The structure is checked when the file is read (every analog pipette has a cell of its name; synapses
+  name cells; synapse keys). Values are checked when the cells are built, which `-n` does for real (about a second).
+  The same file works on `device = sim` and a board: cells are read and ignored.
+- **Process handling.** The adapter has its own process group (Ctrl-C reaches only LCG2), its stderr goes to
+  `.STEM/neuron.log`, SIGPIPE is ignored, every wait polls every 100 ms for the abort flag, a dead adapter ends the
+  run with exit status 2 and the end of its log in the message; failing to start it is exit status 1.
+- **Archive.** `network.json` (the adapter's description of what it built), `files/NN_name` (every model file read),
+  `neuron.log`, all in `SHA256SUMS`; `provenance.json` has a `neuron` entry (Python, adapter, its SHA-256, dt,
+  temperature).
+
+**Choices made while building M3b, which the owner may veto:**
+1. The gain and calibration inversion at the boundary (above), with clamping and counting at the input range.
+2. The sample-timing convention (end of the interval).
+3. Defaults: `celsius` 6.3 (classical squid axon), `v_init` -65 mV, `sim_dt` 25 us, no settling, `series_resistance` 1 MOhm.
+4. `hh_soma` 20 um (Hodgkin-Huxley, NEURON's `hh`); the default for a morphology without `biophysics` is `hh_soma`
+   (HH in the soma, passive dendrites).
+5. No recording noise, no electrode capacitance or bridge, one electrode per cell (a limit, listed in 14).
+6. A `-n` of a neuron rig starts NEURON (needs `sim_python` to work) rather than only counting cells.
+
+**Not tested:** Linux, other NEURON versions, `.asc` morphologies, a `.mod` compile on a clean cache on a machine other than the development Mac.
+
 ## 5. Hardware facts used (USB-6343 datasheet)
 
 - 4 AO, 16 bit, +/-10 V, simultaneous update; output FIFO 8,191 samples shared
@@ -396,7 +448,7 @@ Report upstream: StimGen leaks about 11 KB per rendered trial.
   convention; M1 enforces it).
 - USB buffering and underflow on long runs.
 
-## 11. Simulator backends (decided)
+## 11. Simulator backends (decided; built, see 4e for where the build differs)
 
 Two backends replace the board when the config says so. Both run on the Mac.
 
@@ -461,7 +513,7 @@ How `device = neuron` works:
 | M1 **done** | Config and CLI: INI, profiles, flags, validation, `-n` | a table of good and bad configs gives the expected messages and exit codes |
 | M2 **done** | StimGen integration: kind, expand, render trial, JSON trial list, channel map, unit check, volts, clip check of all trials, rest samples | samples equal `sg render` on this machine; trial order and seeds equal `sg expand`; a clipping trial is refused before anything plays |
 | M3 **done** | Trial engine and built-in loopback simulator: backend interface, scheduling, rest values, abort | simulator plays a protocol with correct `period`/`gap` timing and recorded delays; Ctrl-C leaves outputs at rest |
-| M3b | NEURON backend (section 11): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
+| M3b **done** | NEURON backend (section 11, as built in 4e): child process over pipes, `lcg2_neuron.py`, an example HH soma and a two-cell multi-patch model | a protocol of current steps on an HH soma gives spikes at the expected amplitudes; only P2 is driven while P1 and P2 are recorded; a killed child aborts the run cleanly |
 | M4 **done** | Recording: HDF5 writer, hidden folder, log, checksums | `h5py` reads a file back; a killed run keeps its completed trials; the hidden folder holds all items of 3.2 |
 | M5 | Multi-patch and loopback tests on the simulator (part of M3/M4, kept as a suite) | `make test` passes with no hardware |
 | **S1** | **Hardware spike** (on the rig host, throwaway C), moved here at the owner's request so that the simulator comes first; the reviewer advised doing it earlier, because the DAQmx backend design depends on its answers: clock and trigger routing, one task or two, last-sample hold, rate coercion, start and loopback latency, clocked DO line, trigger line | each item in section 10 is answered in writing; the backend design is fixed from the answers |

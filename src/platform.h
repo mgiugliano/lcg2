@@ -114,4 +114,38 @@ int64_t clock_now(Clock *c);             /* ns since the clock was started      
  * abort request cut the wait short. */
 int     clock_wait_until(Clock *c, int64_t t);
 
+/* ------------------------------------------------------------------ */
+/* A child process on two pipes (the NEURON adapter, device = neuron)  */
+/* ------------------------------------------------------------------ */
+
+/* A new empty file in the temporary folder ($TMPDIR or /tmp): its path goes to path.  0, or -1. */
+int platform_temp_file(char *path, size_t n);
+
+/* Delete a file (ignores a missing one). */
+void platform_delete_file(const char *path);
+
+/* Ignore SIGPIPE, so that writing to a child that has died fails with EPIPE (which the caller
+ * reports) instead of killing the program before it can put the outputs at rest. */
+void platform_ignore_sigpipe(void);
+
+/* Start argv[0] with the arguments argv (NULL-terminated; searched in PATH).  Its standard input and
+ * output are two pipes (to_child, from_child); its standard error is appended to the file stderr_path.
+ * The child is put in its own process group, so that Ctrl-C reaches only LCG2, which stops the child in
+ * an orderly way.  Returns 0, or -1 with a message in msg.  If the program cannot be run the child
+ * writes why to stderr_path and exits with status 127. */
+int platform_spawn(char *const argv[], const char *stderr_path, long *pid, int *to_child, int *from_child,
+                   char *msg, size_t n);
+
+/* Read exactly n bytes, giving up after timeout_ms without any byte.  Returns 1 when all n came, 0 at
+ * end of input (the child closed the pipe) , -1 on an error, -2 on a timeout, -3 if an abort was requested
+ * while waiting (checked every 100 ms). */
+int platform_read_exact(int fd, void *buf, size_t n, int64_t timeout_ms);
+
+/* Write all n bytes. Returns 0, or -1 (EPIPE included). */
+int platform_write_all(int fd, const void *buf, size_t n);
+
+/* Close the pipes, ask the child to end (SIGTERM), wait up to grace_ms, then kill it, and reap it.
+ * Returns the exit status, or 128 + signal, or -1 if there was nothing to wait for. */
+int platform_child_stop(long pid, int to_child, int from_child, int grace_ms);
+
 #endif /* LCG2_PLATFORM_H */

@@ -6,12 +6,13 @@ the analog and digital outputs of an acquisition board and records the analog
 inputs at the same time. It is a stripped-down successor of the LCG software
 (J Neurosci Methods): no dynamic clamp, no Comedi, no real-time kernel.
 
-> **Status: early.** Milestones M0 to M4 are built and tested: the program reads the
+> **Status: early.** Milestones M0 to M4 and M3b are built and tested: the program reads the
 > command line and the configuration file, reads the stimulus through StimGen,
 > checks every sample, and **plays the trials on a built-in loopback simulator** with
 > exact timing and safe handling of Ctrl-C. Milestone M4 is built too: **every run writes an HDF5
-> data file and a hidden run folder** (configuration, command, stimulus, log, checksums). The NEURON simulator
-> (M3b) and the board (M6) are designed and
+> data file and a hidden run folder** (configuration, command, stimulus, log, checksums). The NEURON simulator (M3b, `device = neuron`) is built too:
+> virtual cells you describe in the configuration, with your own models if you wish, see
+> [`docs/14-neuron-models.md`](docs/14-neuron-models.md). The board (M6) is designed and
 > documented, not written. Nothing in this repository touches hardware.
 
 ```console

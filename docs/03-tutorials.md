@@ -23,7 +23,8 @@ Contents: [1 One pipette](#tutorial-1-one-pipette-in-current-clamp) ·
 [8 Your own rig](#tutorial-8-writing-the-configuration-of-your-own-rig) ·
 [9 Run a protocol](#tutorial-9-a-protocol-checked-and-run) ·
 [10 Check a stimulus with sg](#tutorial-10-checking-a-stimulus-with-sg) ·
-[11 Timing](#tutorial-11-when-trials-start-period-gap-and-late-trials)
+[11 Timing](#tutorial-11-when-trials-start-period-gap-and-late-trials) ·
+[12 Virtual cells](#tutorial-12-patching-a-virtual-cell-on-the-neuron-simulator)
 
 ---
 
@@ -552,3 +553,78 @@ lcg2: start on trigger: no trigger line is configured; press Enter to start
 
 If the input ends instead (nobody can press Enter), the trial is not started and the run
 stops at rest with status 2.
+
+---
+
+## Tutorial 12: patching a virtual cell on the NEURON simulator
+
+**Goal:** run the experiments you would run on a real cell, on a cell that exists only in NEURON, without
+knowing NEURON. You need a Python that has NEURON (`pip install neuron`); the kit
+[`examples/student_kit/`](../examples/student_kit/) names the one of the development Mac in `sim_python`, so
+change that line first.
+
+The rig is the configuration of a real rig, plus `[cell P1]`: the pipette `P1` is on the cell `P1`.
+
+```ini
+[cell P1]
+model = hh_soma          ; the default: a Hodgkin-Huxley soma (20 um)
+```
+
+**Look before you play.** `-n` builds the cell and prints it (nothing is played):
+
+```console
+$ ./lcg2 -c examples/student_kit/rig.ini -n examples/student_kit/current_steps.sg
+```
+
+```text
+  virtual preparation (NEURON 8.2.6, Python 3.11.18): 1 cell(s), 0 synapse(s)
+    cell P1       hh_soma                    1 section(s),    1 segment(s), electrode soma(0.5), rests at -65.0 mV
+```
+
+**Current steps** (a protocol: nine steps from -100 to +300 pA, one every 2 s), then the measurements:
+
+```console
+$ ./lcg2 -c examples/student_kit/rig.ini examples/student_kit/current_steps.sg
+```
+
+```console
+$ python3 examples/student_kit/characterise.py fi 20261118_172433.h5
+step                spikes        Hz V at end, mV
+amp=-100pA               0       0.0       -80.71
+amp=-50pA                0       0.0       -69.83
+amp=0pA                  0       0.0       -64.97
+amp=50pA                 1       1.2       -62.26
+amp=100pA               50      62.5       -65.21
+...
+resting potential: -65.0 mV
+input resistance (from the negative steps): 97 MOhm
+```
+
+(The file name is the one your run printed.) **Voltage clamp** is the same rig with `-m vc`, where the command is
+in mV and the recording in pA:
+
+```console
+$ ./lcg2 -m vc -c examples/student_kit/rig.ini examples/student_kit/vc_steps.sg
+```
+
+**Another cell, nothing else changed:** a profile swaps the model.
+
+```console
+$ ./lcg2 -P ballstick -c examples/student_kit/rig.ini examples/student_kit/current_steps.sg
+```
+
+**Two cells and a synapse:** patch both, drive one:
+
+```console
+$ ./lcg2 -c examples/student_kit/rig_pair.ini examples/student_kit/pair_pulse.sg
+```
+
+**Your own cell:** a morphology, biophysics and initialisation code you wrote, as files next to the
+configuration (see `rig_morphology.ini`):
+
+```console
+$ ./lcg2 -c examples/student_kit/rig_morphology.ini examples/student_kit/current_steps.sg
+```
+
+The keys, the model contract (Python, hoc, SWC, `.mod`), the units rule and the limits are in
+[14 Virtual cells](14-neuron-models.md). The exercises are in the kit's `README.md`.

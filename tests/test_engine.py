@@ -400,10 +400,11 @@ def test_program(tmp):
     r = lcg2(["-c", CFG, "-t", "1us"])
     check("-t shorter than one sample is refused", r.returncode == 1 and "shorter than one sample" in r.stderr, r.stderr)
 
-    neu = write(tmp, "neuron.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = neuron\nsim_script = m.py"))
+    neu = write(tmp, "neuron.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = neuron\nsim_python = /no/such/python")
+                + "\n[cell P1]\n[cell P2]\n")
     r = lcg2(["-c", neu, "examples/step.sg"])
-    check("device = neuron is refused with a clear message (exit 1)", r.returncode == 1 and
-          "milestone M3b" in r.stderr, r.stderr)
+    check("device = neuron with no usable Python is refused with a clear message (exit 1)", r.returncode == 1 and
+          "cannot run /no/such/python" in r.stderr, r.stderr)
     dev = write(tmp, "dev.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = Dev1"))
     r = lcg2(["-c", dev, "examples/step.sg"])
     check("a board device is refused: there is no hardware backend yet (exit 1)", r.returncode == 1 and

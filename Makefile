@@ -70,7 +70,7 @@ HDRS = $(wildcard src/*.h)
 
 # The modules that need nothing but the C library, and those that need HDF5 (record.c
 # only: HDF5 is kept out of every test tool that does not write a data file).
-CORE    = err units config cli json stim platform backend_sim engine sha256 archive session
+CORE    = err units config cli json stim platform backend_sim backend_neuron engine sha256 archive session
 APP     = record run main
 OBJ     = $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o $(APP:%=$(BUILD)/%.o)
 CORE_OBJ= $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o
@@ -106,6 +106,10 @@ $(BUILD)/record.o: src/record.c $(HDRS) | $(BUILD)
 # run.c knows which StimGen it was built against.
 $(BUILD)/run.o: src/run.c $(HDRS) STIMGEN_PIN | $(BUILD)
 	$(CC) $(CFLAGS) $(PINFLAGS) -Isrc -c -o $@ $<
+
+# backend_neuron.c knows where the adapter is (the default of device = neuron when [rig] has no sim_script).
+$(BUILD)/backend_neuron.o: src/backend_neuron.c $(HDRS) | $(BUILD)
+	$(CC) $(CFLAGS) -DLCG2_NEURON_ADAPTER='"$(abspath neuron/lcg2_neuron.py)"' -Isrc -c -o $@ $<
 
 $(BUILD)/ini.o: vendor/inih/ini.c vendor/inih/ini.h | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -c -o $@ $<
@@ -186,6 +190,7 @@ test: all
 	LCG2_BUILD=$(BUILD) python3 tests/test_stim.py
 	LCG2_BUILD=$(BUILD) python3 tests/test_engine.py
 	LCG2_BUILD=$(BUILD) python3 tests/test_record.py
+	LCG2_BUILD=$(BUILD) python3 tests/test_neuron.py
 	python3 tests/test_docs.py ./lcg2
 	python3 tests/check_clean.py
 

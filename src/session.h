@@ -67,6 +67,7 @@ typedef struct {
 int session_prepare(Session *s, int argc, char **argv, Err *err);
 
 /* The answer to -n: what would happen, in words, on stdout. */
-void session_print_plan(const Session *s);
+/* Print the plan of a dry run.  Returns 0, or -1 with a message (for device = neuron, if the cells cannot be built). */
+int session_print_plan(const Session *s, Err *err);
 
 #endif /* LCG2_SESSION_H */

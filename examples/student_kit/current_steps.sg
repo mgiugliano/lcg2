@@ -1,0 +1,16 @@
+sg 2 protocol
+# Current clamp: a family of current steps, from -100 to +300 pA, one trial every 2 s.
+# Use it to find the resting potential, the input resistance, the rheobase and the f-I curve.
+sweep    amp = from -100pA to 300pA step 50pA
+repeat   1
+order    sequential
+period   2s
+
+stimulus {
+    channel P1 unit=pA {
+        200ms dc(0)
+        @step
+        800ms dc($amp)
+        300ms dc(0)
+    }
+}

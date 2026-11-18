@@ -30,10 +30,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "archive.h"
+#include "backend_neuron.h"
 #include "engine.h"
+#include "json.h"
 #include "platform.h"
 #include "record.h"
 #include "run.h"
+#include "sha256.h"
 #include "stimgen_api.h"
 #include "units.h"
 
@@ -138,6 +141,56 @@ static int tee_end(void *u, const TrialInfo *ti, const TrialRecord *rec, Err *er
 }
 
 /* ------------------------------------------------------------------ */
+/* What the NEURON adapter did, for the run folder                     */
+/* ------------------------------------------------------------------ */
+
+/* After a run on device = neuron: keep the description of the network that was built (network.json),
+ * copies of the model files that were read, and the adapter's own messages (neuron.log, which the
+ * adapter has finished writing).  Failures are logged, not fatal: the data are what matters. */
+static void neuron_archive(Archive *ar, const Backend *be, const Config *c, const char *run_error)
+{
+    const char *desc = neuron_backend_description(be);
+    Err e;
+    FILE *f;
+    char logpath[300];
+
+    (void)run_error;
+    if (desc) {
+        Json *j = json_parse(desc, strlen(desc), &e);
+        if (archive_put(ar, "network.json", desc, strlen(desc), &e) < 0)
+            archive_log(ar, "warning  network.json could not be kept: %s", e.msg);
+        if (j) {
+            const Json *files = json_get(j, "files");
+            size_t k;
+            for (k = 0; files && k < files->n; k++) {
+                const char *p = json_str(json_at(files, k));
+                if (p && archive_copy(ar, p, NULL, &e) < 0)
+                    archive_log(ar, "warning  the model file %s could not be copied: %s", p, e.msg);
+            }
+            archive_log(ar, "neuron  NEURON %s, Python %s, %d cell(s), %d synapse(s), adapter %s", json_str_or(j, "neuron", "?"),
+                        json_str_or(j, "python", "?"), c->n_cells, c->n_synapses, "lcg2_neuron.py");
+            json_free(j);
+        }
+    }
+    snprintf(logpath, sizeof logpath, "%s/neuron.log", ar->dir);
+    f = fopen(logpath, "rb");
+    if (f) {
+        char *buf = NULL;
+        size_t n = 0, cap = 0, got;
+        char chunk[4096];
+        while ((got = fread(chunk, 1, sizeof chunk, f)) > 0) {
+            if (n + got + 1 > cap) { cap = (n + got + 1) * 2; buf = (char *)realloc(buf, cap); if (!buf) break; }
+            memcpy(buf + n, chunk, got);
+            n += got;
+        }
+        fclose(f);
+        if (archive_put(ar, "neuron.log", buf ? buf : "", n, &e) < 0)        /* an empty log is kept too */
+            archive_log(ar, "warning  neuron.log could not be kept: %s", e.msg);
+        free(buf);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* The provenance record                                               */
 /* ------------------------------------------------------------------ */
 
@@ -175,6 +228,18 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
     sb_add(&b, ",\n");
     sb_add(&b, "  \"profile\": "); sb_json(&b, s->table.profile[0] ? s->table.profile : ""); sb_add(&b, ",\n");
     sb_addf(&b, "  \"virtual_time\": %s,\n", virtual_time ? "true" : "false");
+    if (s->config.device == DEV_NEURON) {
+        char script[1200], hex[65];
+        Err e3;
+        neuron_script_path(&s->config, script, sizeof script);
+        if (lcg_sha256_file(script, hex, NULL, &e3) < 0) strcpy(hex, "unreadable");
+        sb_add(&b, "  \"neuron\": {\"sim_python\": "); sb_json(&b, s->config.sim_python);
+        sb_add(&b, ", \"adapter\": "); sb_json(&b, script);
+        sb_add(&b, ", \"adapter_sha256\": "); sb_json(&b, hex);
+        sb_addf(&b, ", \"dt_ms\": %.9g, \"celsius\": %.9g, \"v_init\": %.9g, \"settle_ms\": %.9g, "
+                "\"network\": \"network.json in the run folder\"},\n", s->config.sim_dt_ms, s->config.sim_celsius,
+                s->config.sim_v_init, s->config.sim_settle_ms);
+    }
     sb_addf(&b, "  \"rate\": {\"hz\": %.17g, \"p\": %lld, \"q\": %lld, \"source\": ", (double)rate_p / (double)rate_q,
             (long long)rate_p, (long long)rate_q);
     sb_json(&b, rate_source);
@@ -256,10 +321,6 @@ int run_execute(const RunParams *rp, Err *err)
     int64_t estimated_bytes = 0, free_bytes = -1;
     Err e2;
 
-    if (c->device == DEV_NEURON) {
-        err_set(err, "device = neuron is not implemented yet (milestone M3b); use device = sim");
-        return 1;
-    }
     if (c->device == DEV_DAQMX) {
         err_set(err, "device '%s': there is no hardware backend yet (milestone M6, and the machine "
                 "that will have the board is not decided); use device = sim", c->device_name);
@@ -384,7 +445,17 @@ int run_execute(const RunParams *rp, Err *err)
     }
 
     /* 2. Play. */
-    be = sim_backend_new(&rp->sim);
+    if (c->device == DEV_NEURON) {
+        NeuronOpts no;
+        char script[1200], logpath[300];
+        memset(&no, 0, sizeof no);
+        neuron_script_path(c, script, sizeof script);
+        snprintf(logpath, sizeof logpath, "%s/neuron.log", ar.dir);
+        no.python = c->sim_python; no.script = script; no.stderr_path = logpath;
+        be = neuron_backend_new(&no);                   /* copies the strings */
+    } else {
+        be = sim_backend_new(&rp->sim);
+    }
     if (!be) { err_set(err, "out of memory"); record_close(rec, &e2); goto setup_failed; }
     platform_install_abort_handlers();
     if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
@@ -399,7 +470,8 @@ int run_execute(const RunParams *rp, Err *err)
         fprintf(stderr, "lcg2: running %d trial(s) on the %s, %s; writing %s\n", ntrials, be->name,
                 o->realtime ? "in real time" : "in simulated time (-R follows the clock)", ar.h5);
     status = engine_run(&job, &rep, err);
-    sim_backend_free(be);
+    if (c->device == DEV_NEURON) neuron_archive(&ar, be, c, err->msg);
+    if (c->device == DEV_NEURON) neuron_backend_free(be); else sim_backend_free(be);
 
     /* 3. Whatever happened: close the data file, take its digest, write the record. */
     archive_log(&ar, "end  %s: %d of %d trial(s) completed, %d started, largest delay %.3f s, %lld input samples beyond range",

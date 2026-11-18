@@ -14,15 +14,15 @@ outputs held at rest between trials and on every way out, safe Ctrl-C, and the i
 sink in physical units, and **every run writes an HDF5 file and a hidden run folder** (M4:
 `record.c`, `archive.c`, `run.c`, `sha256.c`; format in `docs/13-data-format.md`). The board
 (NI USB-6343) is not supported by NI-DAQmx on Linux, so the **rig host is undecided** and hardware work
-is on hold. The next job is M3b (NEURON) or M5 (the test suite as a whole); ask the owner first.
+is on hold. M3b (the NEURON backend, `device = neuron`) is built too. The next job is M5 (the test suite as a whole) or hardware (on hold); ask the owner first.
 
 ## State at a glance
 
 | Item | State |
 |:--|:--|
 | Repository | <https://github.com/mgiugliano/lcg2> |
-| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums |
-| Next | M3b NEURON, then M5 test suite (ask the owner before starting) |
+| Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums; M3b NEURON backend (`backend_neuron.c`, `neuron/lcg2_neuron.py`) |
+| Next | M5 test suite as a whole (ask the owner before starting) |
 | On hold | S1 hardware spike, M6 DAQmx, M7 rig bring-up (host undecided) |
 | StimGen pin | StimGen2 `379434b` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
 | Tests | `make test`: unit tests, M1 table, M2 suite, M3 suite, doc commands; all must pass |
@@ -120,6 +120,26 @@ is on hold. The next job is M3b (NEURON) or M5 (the test suite as a whole); ask 
    exit status (2 if the integrity record or the final rest fails).
 3. `session.c` holds what `main.c` used to do (command line, configuration, checks); `main.c` is thin.
 4. Tests: `tests/test_record.py` (100 checks, h5py), `examples/read_run.py` is the reference reader.
+
+## What M3b does (built; the design is in `SPEC.md` 4e and 11, the user's manual is `docs/14-neuron-models.md`)
+
+1. `backend_neuron.c` is a `Backend` that talks to `neuron/lcg2_neuron.py` over two pipes (JSON line + raw float64).
+   It inverts gain and calibration on the Drive volts (pA, mV), advances the cells through the pause between
+   trials from `clock_now`, and streams blocks of 0.1 s. Config: `[rig] sim_*` keys, `[cell]`, `[synapse]`
+   (structure checked in `config.c: build_prep`, values by the adapter).
+2. The adapter builds cells (built-in `hh_soma`/`ball_and_stick`, Python, hoc, SWC + biophysics + init, `.mod`
+   compiled into a cache), electrodes by unit, synapses, and steps them. It keeps the protocol on a private copy of
+   fd 1 and sends fd 1 to the log: NEURON prints to stdout.
+3. `-n` runs the adapter in `check` mode (`neuron_check`), so model mistakes show before a run.
+4. Tests: `tests/test_neuron.py` (66 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
+   `examples/student_kit/` is the package for students and is tested too.
+
+**Traps specific to this backend.** NEURON output on stdout would corrupt the pipe (hence the fd juggling);
+`SIGPIPE` must stay ignored; the adapter must be in its own process group or Ctrl-C kills it before LCG2 can
+abort cleanly; never read the pipe without the polling reader (it is what makes Ctrl-C work); the Makefile bakes
+the adapter path into `backend_neuron.o` (`LCG2_NEURON_ADAPTER`), so `tests/sanitize.sh` passes the same define;
+`sim_python` defaults to `python3`, which has no NEURON on the development Mac (use the 3.11 path); the first
+`.mod` compile takes a while and is cached.
 
 ## Useful commands
 

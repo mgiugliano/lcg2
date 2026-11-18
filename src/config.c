@@ -47,6 +47,7 @@
  * silently.
  */
 #include <ctype.h>
+#include <limits.h>
 #include <errno.h>
 #include <math.h>
 #include <stdarg.h>
@@ -517,7 +518,7 @@ static int need_mode_gain(const Table *t, const char *sect, int skip, Mode mode,
 }
 
 static const char *const rig_keys[] = { "device", "mode", "rate", "trigger",
-    "sim_script", "sim_python", NULL };
+    "sim_script", "sim_python", "sim_dt", "sim_celsius", "sim_v_init", "sim_settle", NULL };
 static const char *const out_keys[] = { "line", "digital", "gain_cc", "unit_cc",
     "gain_vc", "unit_vc", "cal_offset", "cal_scale", "limit", "rest", "skip", NULL };
 static const char *const in_keys[] = { "line", "range", "terminal", "gain_cc",
@@ -578,17 +579,49 @@ static int build_rig(const Table *t, Mode mode_flag, Config *c, Err *err)
         c->has_trigger = 1;
     }
 
-    /* the simulator script belongs to device = neuron, and only to it */
+    /* the simulator keys belong to device = neuron, and only to it; sim_script is optional (the adapter
+     * that ships with LCG2 is the default, see run.c) */
+    {
+        static const char *const nk[] = { "sim_script", "sim_python", "sim_dt", "sim_celsius", "sim_v_init",
+                                          "sim_settle", NULL };
+        int k;
+        for (k = 0; nk[k]; k++)
+            if (c->device != DEV_NEURON && get(t, "rig", nk[k]))
+                return cfg_err(t, get(t, "rig", nk[k]), err, "only used with device = neuron");
+    }
     en = get(t, "rig", "sim_script");
-    if (c->device == DEV_NEURON && !en)
-        return cfg_err(t, header(t, "rig"), err,
-                       "device = neuron needs sim_script (the model script)");
-    if (c->device != DEV_NEURON && (en || get(t, "rig", "sim_python")))
-        return cfg_err(t, en ? en : get(t, "rig", "sim_python"), err,
-                       "only used with device = neuron");
     if (en) strcpy(c->sim_script, en->val);
     en = get(t, "rig", "sim_python");
     strcpy(c->sim_python, en ? en->val : "python3");
+    c->sim_dt_ms = 0.025; c->sim_celsius = 6.3; c->sim_v_init = -65.0; c->sim_settle_ms = 0.0;
+    en = get(t, "rig", "sim_dt");
+    if (en) {
+        int64_t ps;
+        if (units_parse_duration(en->val, &ps) < 0)
+            return cfg_err(t, en, err, "expected a duration with a unit, like 25us, got '%s'", en->val);
+        c->sim_dt_ms = (double)ps / 1e9;
+    }
+    en = get(t, "rig", "sim_settle");
+    if (en) {
+        int64_t ps;
+        if (units_parse_duration_ex(en->val, &ps, 1, 0) < 0)
+            return cfg_err(t, en, err, "expected a duration with a unit, like 500ms (or 0s), got '%s'", en->val);
+        c->sim_settle_ms = (double)ps / 1e9;
+    }
+    en = get(t, "rig", "sim_celsius");
+    if (en) {
+        char *end;
+        c->sim_celsius = strtod(en->val, &end);
+        if (end == en->val || *end || !isfinite(c->sim_celsius) || c->sim_celsius < -50 || c->sim_celsius > 100)
+            return cfg_err(t, en, err, "expected a temperature in degrees Celsius, got '%s'", en->val);
+    }
+    en = get(t, "rig", "sim_v_init");
+    if (en) {
+        char *end;
+        c->sim_v_init = strtod(en->val, &end);
+        if (end == en->val || *end || !isfinite(c->sim_v_init) || fabs(c->sim_v_init) > 200)
+            return cfg_err(t, en, err, "expected a potential in mV, got '%s'", en->val);
+    }
     return 0;
 }
 
@@ -782,6 +815,102 @@ static int check_lines(const Table *t, const Config *c, Err *err)
     return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* The virtual preparation (device = neuron)                           */
+/* ------------------------------------------------------------------ */
+
+static int has_cell(const Config *c, const char *name)
+{
+    int i;
+    for (i = 0; i < c->n_cells; i++)
+        if (strcmp(c->cell_name[i], name) == 0) return 1;
+    return 0;
+}
+
+static const char *const synapse_keys[] = { "pre", "post", "type", "weight", "delay", "tau", "tau1", "tau2", "e",
+    "threshold", "pre_location", "post_location", NULL };
+
+/*
+ * Check the cells and the synapses and collect their text for the adapter.  Only the structure is
+ * checked here, because the keys a cell takes depend on its model (a model file may define its own
+ * parameters); the values are checked by the adapter when it builds the cells, and `-n` runs that.
+ */
+static int build_prep(const Table *t, Config *c, Err *err)
+{
+    int i, k, len = 0;
+    char *real;
+
+    real = realpath(t->path, NULL);
+    if (real) {
+        char *slash = strrchr(real, '/');
+        if (slash && slash != real) *slash = 0;
+        else if (slash) slash[1] = 0;
+        if (strlen(real) < sizeof c->cfg_dir) strcpy(c->cfg_dir, real);
+        free(real);
+    }
+    if (!c->cfg_dir[0]) strcpy(c->cfg_dir, ".");
+
+    for (i = 0; i < t->n; i++) {
+        char kind[CFG_NAME], name[CFG_NAME];
+        const Entry *en = &t->e[i];
+        int n;
+        split_section(en->sect, kind, sizeof kind, name, sizeof name);
+        if (strcmp(kind, "cell") && strcmp(kind, "synapse")) continue;
+        if (!en->key[0]) n = snprintf(c->prep + len, CFG_PREP - (size_t)len, "[%s]\n", en->sect);
+        else n = snprintf(c->prep + len, CFG_PREP - (size_t)len, "%s = %s\n", en->key, en->val);
+        if (n < 0 || len + n >= CFG_PREP)
+            return err_set(err, "%s: the [cell] and [synapse] sections are too long (the limit is %d characters)",
+                           t->path, CFG_PREP);
+        len += n;
+        if (strcmp(kind, "synapse") == 0 && en->key[0]) {
+            for (k = 0; synapse_keys[k]; k++)
+                if (strcmp(en->key, synapse_keys[k]) == 0) break;
+            if (!synapse_keys[k]) {
+                char list[200] = "";
+                for (k = 0; synapse_keys[k]; k++) {
+                    if (k) strncat(list, ", ", sizeof list - strlen(list) - 1);
+                    strncat(list, synapse_keys[k], sizeof list - strlen(list) - 1);
+                }
+                return cfg_err(t, en, err, "unknown key (allowed: %s)", list);
+            }
+        }
+    }
+
+    /* synapses connect cells that exist */
+    for (i = 0; i < t->n; i++) {
+        char kind[CFG_NAME], name[CFG_NAME];
+        const Entry *en = &t->e[i];
+        split_section(en->sect, kind, sizeof kind, name, sizeof name);
+        if (strcmp(kind, "synapse") || en->key[0]) continue;
+        {
+            static const char *const ends[] = { "pre", "post", NULL };
+            for (k = 0; ends[k]; k++) {
+                const Entry *e2 = get(t, en->sect, ends[k]);
+                if (!e2)
+                    return cfg_err(t, en, err, "needs %s = NAME, the name of a [cell]", ends[k]);
+                if (!has_cell(c, e2->val))
+                    return cfg_err(t, e2, err, "'%s' is not a [cell] of this file", e2->val);
+            }
+        }
+    }
+
+    /* with device = neuron every pipette is a cell; a file written for the simulator still works on a board */
+    if (c->device == DEV_NEURON) {
+        if (c->n_cells == 0)
+            return err_set(err, "%s: device = neuron needs at least one [cell NAME] section (for example [cell P1] "
+                           "with model = hh_soma, for the pipette P1)", t->path);
+        for (i = 0; i < c->n_out; i++)
+            if (!c->out[i].skip && !c->out[i].digital && !has_cell(c, c->out[i].name))
+                return err_set(err, "%s: [out %s] has no [cell %s]: with device = neuron every analog pipette is "
+                               "attached to the cell of the same name", t->path, c->out[i].name, c->out[i].name);
+        for (i = 0; i < c->n_in; i++)
+            if (!c->in[i].skip && !has_cell(c, c->in[i].name))
+                return err_set(err, "%s: [in %s] has no [cell %s]: with device = neuron every pipette is "
+                               "attached to the cell of the same name", t->path, c->in[i].name, c->in[i].name);
+    }
+    return 0;
+}
+
 int config_build(const Table *t, Mode mode_flag, Config *c, Err *err)
 {
     int i;
@@ -799,11 +928,14 @@ int config_build(const Table *t, Mode mode_flag, Config *c, Err *err)
         } else if (strcmp(kind, "in") == 0) {
             if (build_in(t, t->e[i].sect, name, c, err) < 0) return -1;
         } else if (strcmp(kind, "cell") == 0) {
-            c->n_cells++;                            /* checked in M3b */
+            if (c->n_cells >= CFG_MAX_CELLS)
+                return cfg_err(t, &t->e[i], err, "more than %d cells", CFG_MAX_CELLS);
+            strcpy(c->cell_name[c->n_cells++], name);
         } else if (strcmp(kind, "synapse") == 0) {
             c->n_synapses++;
         }
     }
+    if (build_prep(t, c, err) < 0) return -1;
     if (check_lines(t, c, err) < 0) return -1;
 
     /* The idle value of every analog output in use must be a legal voltage:

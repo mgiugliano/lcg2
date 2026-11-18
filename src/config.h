@@ -49,12 +49,14 @@
  *                             mode = cc | vc          (or -m on the command line)
  *                             rate = 20kHz            (optional)
  *                             trigger = PFI0          (optional, see SPEC 3.16)
- *                             sim_script, sim_python  (device = neuron only)
+ *                             sim_script, sim_python, sim_dt, sim_celsius,
+ *                             sim_v_init, sim_settle  (device = neuron only)
  *   [out P1]                  one analog or digital output, named like the
  *                             stimulus channel it carries
  *   [in V1]                   one analog input, recorded in every trial
- *   [cell P1], [synapse A_B]  virtual preparation (device = neuron), checked
- *                             in milestone M3b
+ *   [cell P1], [synapse A_B]  virtual preparation (device = neuron): the cell
+ *                             that every pipette P1 is attached to, and the
+ *                             synapses between cells (SPEC 4e)
  *   [profile NAME]            overrides, selected with -P NAME
  *
  * Gain convention: a gain is "channel units per volt".  An output with
@@ -94,6 +96,8 @@
 #define CFG_VAL         400      /* one value, with the NUL               */
 #define CFG_MAX_OUT     16       /* 4 analog + 8 digital lines, with room */
 #define CFG_MAX_IN      16       /* the board has 16 analog inputs        */
+#define CFG_MAX_CELLS   16       /* virtual cells                         */
+#define CFG_PREP        16384    /* text of the [cell]/[synapse] sections */
 
 /* ------------------------------------------------------------------ */
 /* Step 1 and 2: the flat table                                        */
@@ -188,7 +192,15 @@ typedef struct {
     char    sim_python[CFG_VAL];
     int     n_out;  OutCh out[CFG_MAX_OUT];
     int     n_in;   InCh  in[CFG_MAX_IN];
-    int     n_cells, n_synapses; /* counted here, checked in M3b          */
+    int     n_cells, n_synapses; /* virtual preparation (device = neuron) */
+    char    cell_name[CFG_MAX_CELLS][CFG_NAME];
+    /* What the NEURON adapter needs (device = neuron), all of it optional in the file. */
+    double  sim_dt_ms;           /* largest integration step, default 0.025 */
+    double  sim_celsius;         /* default 6.3 (the classical squid axon)  */
+    double  sim_v_init;          /* mV, default -65                         */
+    double  sim_settle_ms;       /* time the cells rest before the first trial, default 0 */
+    char    cfg_dir[512];        /* absolute folder of the configuration file: relative model paths start here */
+    char    prep[CFG_PREP];      /* the [cell] and [synapse] sections, resolved, as INI text */
 } Config;
 
 /* Check the resolved table and fill c.  mode_flag is -m (MODE_NONE if not

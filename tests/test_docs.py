@@ -41,6 +41,24 @@ def absolute(argv):
             else a for a in argv]
 
 
+def needs_missing_neuron(files):
+    """A configuration with device = neuron needs the sim_python of the file to have NEURON; if it has none the
+    command is an illustration on this machine (tests/test_neuron.py is the test of that backend)."""
+    for f in files:
+        path = os.path.join(ROOT, f)
+        if not f.endswith(".ini"):
+            continue
+        text = open(path).read()
+        if not re.search(r"^device\s*=\s*neuron", text, re.M):
+            continue
+        m = re.search(r"^sim_python\s*=\s*([^;\n]+)", text, re.M)
+        py = m.group(1).strip() if m else "python3"
+        if subprocess.run([py, "-c", "import neuron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+            print("      (skipped a command with %s: its sim_python has no NEURON)" % f)
+            return True
+    return False
+
+
 for page in pages:
     if not os.path.exists(page):
         continue
@@ -64,6 +82,9 @@ for page in pages:
                       ("-c", "-P", "-m", "-r", "-s", "-T", "-t", "-e", "-p"))]
         files += positional
         if any(not os.path.exists(os.path.join(ROOT, f)) for f in files):
+            skipped += 1
+            continue
+        if needs_missing_neuron(files):
             skipped += 1
             continue
         p = subprocess.run([LCG2] + absolute(argv), cwd=WORK, stdout=subprocess.PIPE,

@@ -14,6 +14,7 @@ run*: LCG2 reads a configuration, checks it, and prints what it would do.
 - A C99 compiler (`cc`; any recent clang or gcc), and `make`.
 - **HDF5** (the C library, to build `lcg2`): `brew install hdf5` on the Mac, `sudo apt install libhdf5-dev` on
   Ubuntu. The Makefile finds `h5cc` and says what to install if it cannot.
+- **Optional, for `device = neuron`:** a Python that has NEURON (`pip install neuron`); see [14 Virtual cells](14-neuron-models.md). Without it everything else works and the NEURON tests skip.
 - `python3`, only to run the tests and the example reader; the tests also need `h5py` (`pip install h5py`).
 - The [StimGen 2](https://github.com/mgiugliano/StimGen2) sources, in a folder
   next to this one. The default is `../StimGen/src`; set `STIMGEN_SRC=...` if

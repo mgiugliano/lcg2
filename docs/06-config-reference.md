@@ -32,8 +32,12 @@ key = value   ; comment      a key; a ';' after a space starts a comment
 | `mode` | one of this and `-m` | `cc`, `vc` | amplifier mode (`-m` overrides) |
 | `rate` | no | a rate: `20kHz`, `10000` | default sampling rate (a stimulus can state its own) |
 | `trigger` | no | `PFI0` ... `PFI15` | the line a `start on trigger` waits on |
-| `sim_script` | with `neuron` | a path | the NEURON adapter script; refused with other devices |
 | `sim_python` | no (default `python3`) | a path | a Python that has NEURON; refused with other devices |
+| `sim_script` | no | a path | replaces the NEURON adapter that ships with LCG2 (a relative path starts in the folder of the file); refused with other devices |
+| `sim_dt` | no (`25us`) | a duration | largest NEURON integration step; refused with other devices |
+| `sim_celsius` | no (`6.3`) | a number | temperature, °C; refused with other devices |
+| `sim_v_init` | no (`-65`) | a number | mV, the starting potential; refused with other devices |
+| `sim_settle` | no (`0s`) | a duration | rest time before the first trial; refused with other devices |
 
 ## `[out NAME]`: one output
 
@@ -76,9 +80,13 @@ to be confirmed on the rig).
 
 ## `[cell NAME]` and `[synapse NAME]`: virtual preparation
 
-Only used with `device = neuron` (milestone M3b). Today the sections are
-counted and not validated. The intended keys are in [08 Simulators](08-simulators.md)
-and `SPEC.md`, section 11.
+Used with `device = neuron` (built, milestone M3b); on any other device they are read and ignored, so one
+file serves both a simulation and the rig. With `device = neuron`, every analog `[out NAME]` and every
+`[in NAME]` needs a `[cell NAME]`, and a `[synapse]` needs `pre` and `post` naming cells. The synapse keys
+(`pre`, `post`, `type`, `weight`, `delay`, `tau`, `tau1`, `tau2`, `e`, `threshold`, `pre_location`,
+`post_location`) are checked when the file is read. The keys of a `[cell]` depend on its model (anything
+LCG2 does not know is a parameter of the model), so they are checked when the cell is built, by `-n` as well.
+All keys, with examples: [14 Virtual cells](14-neuron-models.md).
 
 ## `[profile NAME]`: overrides
 

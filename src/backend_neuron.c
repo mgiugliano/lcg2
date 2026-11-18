@@ -206,7 +206,9 @@ static int read_reply(Nrn *s, int timeout_s, Json **out, Err *err)
     }
     line[n] = 0;
     free(s->lastline);
-    s->lastline = strdup(line);
+    s->lastline = (char *)malloc(n + 1);                  /* a copy (strdup is not ISO C99, and without its prototype a
+                                                             64-bit pointer is cut to an int: a crash on Linux) */
+    if (s->lastline) memcpy(s->lastline, line, n + 1);
     j = json_parse(line, n, err);
     free(line);
     if (!j) { char m[200]; snprintf(m, sizeof m, "sent something that is not JSON (%s)", err->msg); return die(s, err, m); }

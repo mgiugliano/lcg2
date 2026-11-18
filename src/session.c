@@ -126,7 +126,7 @@ static int check_stimulus(Session *s, Err *err)
     Stim *stim = &s->stim;
     Report *report = &s->report;
     char *text;
-    const char *source;
+    const char *source = NULL;
     int i, k;
 
     if (load_text(o, &text, &source, err) < 0) return -1;

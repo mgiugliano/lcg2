@@ -46,6 +46,7 @@
  * that CFG_NAME allows, so the handler refuses it: nothing is truncated
  * silently.
  */
+#define _POSIX_C_SOURCE 200809L              /* realpath */
 #include <ctype.h>
 #include <limits.h>
 #include <errno.h>

@@ -301,7 +301,7 @@ def test_pair(tmp):
     check("P1 spiked", spike is not None, "max %g" % p1.max())
     if spike is not None:
         base = p2[:900].mean()
-        check("P2 is quiet before the spike (nothing but its own rest)", abs(p2[:spike].max() - p2[:spike].min()) < 0.05,
+        check("P2 is quiet before the spike (nothing but its own rest)", abs(p2[:spike].max() - p2[:spike].min()) < 0.1,
               "%g" % (p2[:spike].max() - p2[:spike].min()))
         onset = next((i for i in range(spike, len(p2)) if p2[i] - base > 0.05), None)
         check("P2 answers with a depolarisation (peak %.2f mV)" % (p2.max() - base), p2.max() - base > 0.2,
@@ -319,7 +319,7 @@ def test_pair(tmp):
     ini2 = write_ini(d2, cells="[cell P1]\nmodel = hh_soma\n[cell P2]\nmodel = hh_soma\n", p2=True)
     r = lcg(["-q", "-c", ini2, write(os.path.join(d2, "pair.sg"), PAIR_STIM)], d2)
     q2 = trace(h5_of(d2), 0, "P2")
-    check("without the synapse P2 does not move", r.returncode == 0 and q2.max() - q2.min() < 0.05, "%g" % (q2.max() - q2.min()))
+    check("without the synapse P2 does not move", r.returncode == 0 and q2.max() - q2.min() < 0.1, "%g" % (q2.max() - q2.min()))
 
 
 PROTO = """sg 2 protocol

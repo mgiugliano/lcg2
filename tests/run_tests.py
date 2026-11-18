@@ -455,7 +455,7 @@ def run_case(tmp, case):
 def _has_neuron(py):
     """True if the Python at this path exists and can import neuron (a path from another machine does not exist)."""
     try:
-        return subprocess.run([py, "-c", "import neuron"], stdout=subprocess.DEVNULL,
+        return subprocess.run([py, "-I", "-c", "import neuron"], stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL).returncode == 0
     except OSError:
         return False

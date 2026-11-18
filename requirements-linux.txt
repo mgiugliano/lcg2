@@ -1,0 +1,6 @@
+# What the whole test suite was run with on Ubuntu 22.04.5 (Python 3.10.12, gcc 11.4, system HDF5 1.10.7).
+#     python3 -m venv ~/lcg2_venv && . ~/lcg2_venv/bin/activate && pip install -r requirements-linux.txt
+# (no matplotlib on that machine: the plotting scripts and the figures were not run there)
+neuron==9.0.2
+h5py==3.16.0
+numpy

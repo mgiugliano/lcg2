@@ -6,7 +6,7 @@
 > [`docs/figures/make_neuron_figures.py`](figures/make_neuron_figures.py), which runs `lcg2` itself.
 > The reference for all keys is [14 Virtual cells](14-neuron-models.md).
 
-These ten tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
+These eleven tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
 **your own** cell on the rig. You do not need to know NEURON. The kit has everything.
 
 **Before you start**
@@ -31,6 +31,7 @@ These ten tutorials teach patch-clamp electrophysiology on cells that exist only
 | H | [Your own channel](#h-your-own-channel-a-mod-file) | a `.mod` file: Ih and the sag |
 | I | [Comparing cells, repeating runs](#i-comparing-cells-and-repeating-a-run) | profiles, batches, the run folder |
 | J | [A real electrode](#j-a-real-electrode-bridge-balance-compensation-noise-and-aec) | pipette resistance and capacitance, bridge balance, neutralisation, series-resistance compensation, noise, active electrode compensation |
+| K | [Seal, junction potential, bandwidth](#k-the-seal-the-junction-potential-and-the-amplifiers-bandwidth) | what a leaky seal, a junction offset and a filtered amplifier do to a recording |
 
 ---
 
@@ -560,9 +561,78 @@ command through a capacitive electrode, and the kernel is an estimate from noise
 then finds nothing to remove); change `electrode_resistance`, give the cell `gnabar = 0.12` again and see why AEC is described
 for subthreshold recordings (a spiking cell is not linear).
 
-**Where this stops.** LCG2 simulates a lumped pipette and a first-order amplifier; there is no seal resistance, liquid junction
-potential, amplifier bandwidth limit or whole-cell capacitance compensation, and the compensations are settings, not an
-interactive knob during a run. The list is in [14](14-neuron-models.md#limits-what-this-does-not-do).
+**Where this stops.** LCG2 simulates a lumped pipette and a first-order amplifier; there is no whole-cell capacitance compensation, and
+the compensations are settings, not an interactive knob during a run. The seal, the junction potential and the bandwidth are tutorial K. The list is in [14](14-neuron-models.md#limits-what-this-does-not-do).
+
+---
+
+## K. The seal, the junction potential and the amplifier's bandwidth
+
+**Goal:** three more things that make a real recording differ from the cell: the leak around the pipette, the offset between the
+solutions, and the filter in the amplifier. All three are `[cell]` keys (the same pipette keys as tutorial J); the profiles are in
+`rig_electrode.ini`.
+
+![seal, junction potential and bandwidth](figures/fig-nrn-seal-junction-bandwidth.svg)
+
+### K1. The seal leaks
+
+A seal of several gigaohms is never infinite. `seal_resistance` (in GΩ) lets current leak from the inside of the cell to the bath
+(0 mV), which for a cell resting at −65 mV is a steady **depolarising** current. The same −20 pA step as before, with an ideal
+electrode so that only the seal differs, after one second of settling (`sim_settle`) so that the cell has reached its new rest:
+
+```console
+$ ./lcg2 -P ideal -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+$ ./lcg2 -P seal2g -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+$ ./lcg2 -P seal1g -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+```
+
+The resting potential moves from −65.0 mV to −63.1 mV with a 2 GΩ seal and to −61.8 mV with 1 GΩ, and the input resistance
+measured from the step falls from 77 to 54 and to 42 MΩ: a leaky seal both **depolarises** the cell and **lowers** its resistance, two
+things you read as a sick cell. (The fall is larger than the 7 % that 1 GΩ in parallel with 77 MΩ would give, because the cell is
+non-linear: depolarised, it conducts more.) Try `seal_resistance = 0.5`: this small cell is pushed over threshold and fires on its own.
+In voltage clamp the leak is a standing current the amplifier supplies:
+
+```console
+$ ./lcg2 -m vc -P vc_raw -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+$ ./lcg2 -m vc -P vc_seal -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+```
+
+At −70 mV the 500 MΩ seal of `vc_seal` adds about −70 mV / 500 MΩ = −140 pA to the holding current (−122 pA in the recording): this is
+the usual reason to discard a cell whose holding current drifts. A seal too leaky for the time step is refused with the smallest
+value that is accepted.
+
+### K2. The liquid junction potential
+
+The pipette solution and the bath differ, which adds a constant potential between them: what you record is the cell's potential plus
+that offset. `liquid_junction_potential = 10` makes the recording read 10 mV more positive than the cell really is, all the time:
+
+```console
+$ ./lcg2 -P junction -c examples/student_kit/rig_electrode.ini examples/student_kit/small_step.sg
+```
+
+The trace is the ideal one raised by exactly 10 mV (the test checks that to a nanovolt). In voltage clamp it works the other way: a
+command of −60 mV puts the cell at −70 mV, so the currents you record are those of a cell 10 mV more hyperpolarised than the number you
+typed. Nothing corrects this automatically, as on a rig: you subtract the junction potential from every potential you report, or
+correct the command.
+
+### K3. The amplifier's bandwidth
+
+An amplifier filters its output (a 4-pole Bessel low-pass, typically 2 to 10 kHz) before the digitiser. `amplifier_bandwidth` gives its
+−3 dB corner in kHz. In voltage clamp, the pipette's capacitive transient is one very fast spike, which the filter rounds off:
+
+```console
+$ ./lcg2 -m vc -P vc_bandwidth -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
+```
+
+In the right-hand panel of the figure the unfiltered spike of 11.7 nA in the first sample is cut to 0.1 nA, and the sodium current
+that follows (a few milliseconds) passes almost unchanged: the filter keeps what is slow and removes what is fast. The choice of corner
+is the usual compromise: low enough to remove noise, high enough not to distort the signal you care about (a spike at 1 ms needs
+several kHz). The filter is a real 4-pole Bessel (gain 0.71 at the corner, 0.20 at twice the corner, to within 1 %), and it is
+accurate while the corner times `sim_dt` is at most 0.1: for 10 kHz set `sim_dt = 10us` in `[rig]`, and the program says so if you forget.
+
+**Try.** Put `recording_noise` and `amplifier_bandwidth` together and see how the filter reduces the noise (white noise sampled at
+20 kHz loses power in proportion to the bandwidth); give the electrode a resistance and measure how the bridge-balanced onset of tutorial J
+changes with the filter; correct the potentials of a junction-offset recording by hand.
 
 ---
 

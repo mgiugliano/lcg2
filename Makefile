@@ -24,6 +24,8 @@
 #   make              check the StimGen pin, build ./lcg2 and the test tools
 #   make test         run the tests (needs python3)
 #   make check-pin    only compare the StimGen sources with STIMGEN_PIN
+#   make pdf          the manual as a PDF (docs/pdf/LCG2-manual.pdf; needs pandoc, xelatex, rsvg-convert)
+#   make doctor       check the environment: what is installed, what is missing and how to install it
 #   make sanitize     build with AddressSanitizer and UBSan and run every suite against that
 #   make clean        remove the build folder and ./lcg2
 #
@@ -198,8 +200,14 @@ test: all
 sanitize:
 	bash tests/sanitize.sh
 
+doctor:
+	@bash tools/doctor.sh
+
+pdf:
+	@bash docs/pdf/build.sh
+
 clean:
 	@test -n "$(BUILD)" && test "$(BUILD)" != "/" && test "$(BUILD)" != "."
 	rm -rf $(BUILD) lcg2
 
-.PHONY: all tools stimgen-lib check-pin check-hdf5 test sanitize clean
+.PHONY: all tools stimgen-lib check-pin check-hdf5 test sanitize doctor pdf clean

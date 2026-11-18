@@ -1,7 +1,7 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
-> **Status: built (milestone M3b), with a pipette and amplifier model since 0.2.** `device = neuron` works with NEURON 8.2.6 (Mac,
-> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (96 checks). The numerical result
+> **Status: built (milestone M3b), with a pipette and amplifier model since 0.2 (seal, junction potential and bandwidth since 0.3).** `device = neuron` works with NEURON 8.2.6 (Mac,
+> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (106 checks). The numerical result
 > equals a plain NEURON script to 1e-9 mV (see [How a trial is simulated](#how-a-trial-is-simulated)).
 
 **The idea.** Everything you do on the real rig you do here, with the same command line, the same
@@ -94,7 +94,7 @@ electrode (voltage only).
 | `electrode` | where the pipette sits: `soma(0.5)` (default), `dend[2](1)`, `apical(0.5)` ... |
 | `series_resistance` | voltage clamp only, MΩ (default 1, NEURON's own); `electrode_resistance`, when given, replaces it |
 | `same_as` | the cell of an earlier `[cell]`: a **second electrode on the same cell** (give it its own `electrode` and electrode keys) |
-| the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `cp_compensation`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
+| the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `cp_compensation`, `seal_resistance`, `liquid_junction_potential`, `amplifier_bandwidth`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
 | `d_lambda` | morphology only: the *d_lambda* rule for the number of segments (default 0.1; 0 keeps what the file gives) |
 | anything else | a **parameter of the model**: passed to your model, and an error if the model does not take it |
 
@@ -202,6 +202,9 @@ potential. A real pipette is not, and the artefacts it adds are what you learn t
 | `cap_neutralization` | pF | 0 | current clamp: positive feedback that cancels part of Ce (must stay below `electrode_capacitance`) |
 | `rs_compensation` | percent | 0 | voltage clamp: the clamp adds `α Rs I` to its command (α below 100 %) |
 | `cp_compensation` | pF | 0 | voltage clamp: the recording subtracts `Cpc dV/dt` (the pipette capacitance transient) |
+| `seal_resistance` | GΩ | 0 (none) | a finite seal: a leak from the cell's inside to the bath, `-(Vm - 0)/Rseal` into the cell; needs an `[out]` of the pipette |
+| `liquid_junction_potential` | mV | 0 | the recording reads `Vm + LJP`; the cell really sits at the command minus LJP |
+| `amplifier_bandwidth` | kHz | 0 (none) | everything recorded passes a 4-pole Bessel low-pass with this −3 dB corner; accurate while corner × `sim_dt` ≤ 0.1 |
 
 ![the electrode circuits](figures/fig-nrn-electrode-circuit.svg)
 
@@ -215,6 +218,19 @@ from the cell: the cell sees the command minus `Rs × I`, so large currents are 
 `rs_compensation` is the usual positive feedback. The pipette capacitance Cp draws a transient `Cp dV/dt` at every
 command step; `cp_compensation` cancels it. Both compensations are *settings you choose*, like on an amplifier: too much
 is as bad as too little (the validity checks refuse a neutralisation at or above Ce and a compensation of 100 %).
+
+![seal, junction potential and bandwidth](figures/fig-nrn-seal-junction-bandwidth.svg)
+
+**The seal.** A seal is never infinite: current leaks from the cell's interior to the bath, modelled as an extra conductance `1/Rseal`
+with a reversal of 0 mV. With a 1 GΩ seal the small Hodgkin–Huxley soma rests 3.2 mV more depolarised, and its input resistance
+falls from 77 to 42 MΩ (the cell is nonlinear: the leak moves it up the steep part of its conductance curve). In voltage clamp a
+500 MΩ seal adds about −140 pA to the holding current at −70 mV. A seal that is too leaky for the time step is refused.
+**The liquid junction potential.** Pipette and bath solutions differ, so the recorded potential is offset from the cell's by a constant:
+`recorded = Vm + LJP`. In voltage clamp the cell sits at `command − LJP`. Nothing corrects it for you, as on a real rig.
+**The bandwidth.** A real amplifier filters its output (a 4-pole Bessel filter, 2-10 kHz) before the digitiser: fast transients, such
+as the pipette's capacitive spike and the onset of a step, are rounded. The filter runs at the NEURON step with the bilinear transform,
+so that it behaves like the analogue one: its gain is 0.71 at the corner and 0.20 at twice the corner, to within 1 % while the corner
+times `sim_dt` is at most 0.1 (a 10 kHz corner needs `sim_dt = 10us`, which the program tells you if you forget).
 
 **Two electrodes on one cell.** `[cell V0]` with `same_as = P1` is a second pipette on the cell of `P1`: put its own
 `electrode` (another section, or the same soma) and its own electrode keys, and use `[out V0]`/`[in V0]` as for any pipette.
@@ -257,9 +273,9 @@ $ python3.11 neuron/lcg2_neuron.py --check examples/models/t1.ini
 
 ## Limits (what this does not do)
 
-* **One electrode model**: a lumped pipette (Re, Ce), a first-order amplifier with the settings above; no seal
-  resistance, no liquid junction potential, no amplifier bandwidth limit, no whole-cell capacitance compensation
-  (Cm), no pipette capacitance on the voltage-clamp *cell* side beyond Cp. Noise is white, Gaussian, added to the
+* **One electrode model**: a lumped pipette (Re, Ce), a first-order amplifier with the settings above, a seal leak
+  with a 0 mV reversal, a constant junction potential and a 4-pole Bessel output filter; no whole-cell capacitance
+  compensation (Cm), no seal that changes with time, no junction potential that drifts, no filter on the command. Noise is white, Gaussian, added to the
   recording only (not to the injected current), with the same level at every sample rate. In voltage clamp the pipette
   capacitance transient is spread over the one sample in which the command changes (the amplifier of a real rig is
   band-limited instead). The simulation is stable only while Re × C(membrane under the electrode) exceeds `sim_dt`

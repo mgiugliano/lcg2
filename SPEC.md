@@ -377,7 +377,7 @@ without knowing NEURON):
 
 **Tested on:** the development Mac (NEURON 8.2.6, Python 3.11, HDF5 2.0) and Ubuntu 22.04 (NEURON 9.0.2, Python 3.10, HDF5 1.10.7): the whole `make test`, including a `.mod` compile on a clean cache. **Not tested:** `.asc` morphologies, Windows.
 
-### 4f. The pipette and the amplifier as built (version 0.2)
+### 4f. The pipette and the amplifier as built (versions 0.2 and 0.3)
 
 Added at the owner's request ("recording noise, electrode resistance and capacitance, so that bridge balance and active
 electrode compensation can be applied"). On the NEURON backend, per `[cell]`:
@@ -399,8 +399,19 @@ electrode compensation can be applied"). On the NEURON backend, per `[cell]`:
 (not an amplifier noise spectrum, not noise on the injected current); the pipette-capacitance transient spread over one sample;
 the AEC as an offline script, not run inside LCG2; `electrode_resistance` replacing `series_resistance` in voltage clamp.
 
-**Not modelled:** seal resistance, liquid junction potential, amplifier bandwidth, whole-cell capacitance compensation (Cm),
-pipette capacitance dependence on the immersion depth.
+**Added in 0.3 (also at the owner's request):**
+- **Seal:** `seal_resistance` (GOhm): an extra current `-(Vm - 0)/Rseal` into the cell, set at every step (explicit coupling, refused when
+  `Rseal * C < sim_dt`); needs an `[out]`.
+- **Liquid junction potential:** `liquid_junction_potential` (mV): the recording reads `Vm + LJP`; in voltage clamp the cell sits at
+  `command - LJP`. Not corrected automatically.
+- **Bandwidth:** `amplifier_bandwidth` (kHz): a 4-pole Bessel low-pass on every recorded value, run at the NEURON step (two second-order
+  sections, bilinear transform pre-warped to each section's corner); gain 0.708 at the corner and 0.20 at twice it; accurate within about
+  1 % while `corner * sim_dt <= 0.1`, refused above that.
+**Vetoable:** the seal leak reversing at 0 mV and acting on the cell interior in both modes; the junction potential as a constant that is
+never corrected for you; Bessel (not Butterworth) at the pole count of common amplifiers; the filter on the recorded quantity only.
+
+**Not modelled:** whole-cell capacitance compensation (Cm), a seal that changes in time, a drifting junction potential, filtering of
+the command, pipette capacitance dependence on the immersion depth.
 
 ## 5. Hardware facts used (USB-6343 datasheet)
 

@@ -43,7 +43,7 @@ MODELS = os.path.join(ROOT, "examples", "models")
 
 # ---- find an interpreter with NEURON and h5py, and re-run with it ----------------------------
 def has(py, mods):
-    return subprocess.run([py, "-c", "import " + ", ".join(mods)], stdout=subprocess.DEVNULL,
+    return subprocess.run([py, "-I", "-c", "import " + ", ".join(mods)], stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL).returncode == 0
 
 
@@ -723,6 +723,51 @@ def test_electrodes(tmp):
     check("vc: the pipette capacitance transient (5 pF) is in the raw first sample and cp_compensation removes it",
           rvc[1000] - cvc[1000] > 2000, (rvc[1000], cvc[1000]))
 
+    # the seal, the liquid junction potential, the amplifier's bandwidth
+    seal = trace_of("rig_electrode.ini", "small_step.sg", "-P", "seal1g")
+    junction = trace_of("rig_electrode.ini", "small_step.sg", "-P", "junction")
+    bw = trace_of("rig_electrode.ini", "small_step.sg", "-P", "bandwidth")
+    check("seal: a 1 GOhm seal leaks to the bath (0 mV) and depolarises the cell (%.2f mV at rest)" % (seal[1000] - ideal[1000]),
+          2.0 < seal[1000] - ideal[1000] < 5.0, seal[1000] - ideal[1000])
+    check("junction: the recording reads exactly 10 mV more positive than the cell, all the time",
+          max(abs((junction[i] - ideal[i]) - 10.0) for i in range(len(ideal))) < 1e-9)
+    check("bandwidth: a 2 kHz filter leaves the steady state alone and rounds the onset",
+          abs(bw[a] - ideal[a]) < 0.005 and max(abs(bw[i] - ideal[i]) for i in range(2000, 2040)) > 0.1)
+    w1 = newdir(tmp, "el_ljp_a")
+    w2 = newdir(tmp, "el_ljp_b")
+    stim = "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=mV { 50ms dc(%d) }\n"
+    ra = lcg(["-q", "-m", "vc", "-P", "junction", "-c", os.path.join(d, "rig_electrode.ini"), "-e", stim % -60], w1)
+    rb = lcg(["-q", "-m", "vc", "-P", "ideal", "-c", os.path.join(d, "rig_electrode.ini"), "-e", stim % -70], w2)
+    ia, ib = trace(h5_of(w1), 0, "P1"), trace(h5_of(w2), 0, "P1")
+    check("junction: in voltage clamp a command of -60 mV with a 10 mV junction potential holds the cell where -70 mV does without",
+          ra.returncode == 0 and rb.returncode == 0 and max(abs(x - y) for x, y in zip(ia, ib)) < 1e-6, ra.stderr + rb.stderr)
+    vraw = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_raw")
+    vseal = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_seal")
+    vbw = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_bandwidth")
+    check("seal: in voltage clamp a 500 MOhm seal adds about -70 mV / 500 MOhm = -140 pA to the holding current (%.0f pA)" % (vseal[500] - vraw[500]),
+          abs((vseal[500] - vraw[500]) + 140) < 30, vseal[500] - vraw[500])
+    vraw3 = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_raw", trial=3)
+    vbw3 = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_bandwidth", trial=3)
+    check("bandwidth: in voltage clamp the 2 kHz filter takes most of the one-sample capacitive spike (%.0f against %.0f pA)" % (vbw3[1000], vraw3[1000]),
+          vbw3[1000] < 0.2 * vraw3[1000], (vbw3[1000], vraw3[1000]))
+    import math as _m
+    sys.path.insert(0, os.path.join(ROOT, "neuron"))
+    import lcg2_neuron as _L
+
+    def gain(fc, mult):
+        f = _L.Bessel4(fc)
+        f.set_dt(0.025)
+        f.reset(0.0)
+        n, pk = int(60 / 0.025), 0.0
+        for i in range(n):
+            y = f.step(_m.sin(2 * _m.pi * fc * mult * i * 0.025))
+            if i > n // 2:
+                pk = max(pk, abs(y))
+        return pk
+    g1, g2, g3 = gain(2.0, 0.1), gain(2.0, 1.0), gain(2.0, 2.0)
+    check("bandwidth: the filter is a 4-pole Bessel: gain %.3f at 0.1 fc, %.3f at fc (-3 dB is 0.707), %.3f at 2 fc" % (g1, g2, g3),
+          g1 > 0.99 and abs(g2 - 0.7071) < 0.02 and abs(g3 - 0.2) < 0.03, (g1, g2, g3))
+
     # active electrode compensation: noise injected through a bad electrode, the electrode learned and subtracted
     w = newdir(tmp, "el_aec")
     r = lcg(["-q", "-s", "5", "-c", os.path.join(d, "rig_aec.ini"), os.path.join(d, "aec_noise.sg")], w)
@@ -752,6 +797,8 @@ def test_electrodes(tmp):
     bad("a negative resistance", "bridge_balance = -5", "must not be negative")
     bad("an electrode too small for the time step", "electrode_resistance = 0.5", "too small for sim_dt")
     bad("an unknown unit", "bridge_balance = 50 ohms", "unknown unit")
+    bad("a seal too leaky for the time step", "seal_resistance = 0.0001", "seal_resistance")
+    bad("a bandwidth too high for the time step", "amplifier_bandwidth = 20", "too high for sim_dt")
     bad("same_as naming a cell that is not there", "[cell W]\nsame_as = Nope", "must name a [cell] written EARLIER")
 
 

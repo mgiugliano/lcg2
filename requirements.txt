@@ -1,0 +1,9 @@
+# The Python packages LCG2's tests, examples and NEURON backend were run with on the development Mac
+# (Python 3.11.18 from Homebrew, Apple silicon, macOS 27). Install in a virtual environment:
+#     python3.11 -m venv ~/lcg2_venv && . ~/lcg2_venv/bin/activate && pip install -r requirements.txt
+# h5py reads the data files; neuron is only needed for device = neuron; numpy and matplotlib only for the
+# analysis scripts and the figures. On Linux use requirements-linux.txt.
+neuron==8.2.6
+h5py==3.16.0
+numpy==2.4.6
+matplotlib==3.10.0

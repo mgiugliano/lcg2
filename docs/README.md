@@ -24,6 +24,8 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 > | **Built** | exists in the code and is covered by `make test` |
 > | **Designed** | decided in [`SPEC.md`](../SPEC.md), not written yet |
 
+The whole manual in one PDF (the README with the installation guide, both tutorial collections and the student kit): [`pdf/LCG2-manual.pdf`](pdf/LCG2-manual.pdf), built with `make pdf`.
+
 ## Where to start
 
 | You are... | Read, in this order |
@@ -53,7 +55,7 @@ written in ISO C99, with no dynamic clamp and no real-time kernel.
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
 | [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
-| [16 Tutorials with virtual cells](16-neuron-tutorials.md) | ten tutorials with figures from real runs: first cell, f-I, voltage clamp, synapses, your own Python cell, morphology, your own channel, a real electrode with bridge balance, compensation and AEC |
+| [16 Tutorials with virtual cells](16-neuron-tutorials.md) | eleven tutorials with figures from real runs: first cell, f-I, voltage clamp, synapses, your own Python cell, morphology, your own channel, a real electrode with bridge balance, compensation and AEC |
 | [15 Testing](15-testing.md) | what `make test` proves, what each suite needs, what is not tested |
 | [14 Virtual cells](14-neuron-models.md) | `device = neuron`: describe cells and synapses in the configuration, bring your own models, train in patching |
 

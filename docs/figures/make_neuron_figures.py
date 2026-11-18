@@ -410,6 +410,36 @@ def fig_aec():
     save(fig, "fig-nrn-aec.svg")
 
 
+def fig_seal_junction_bandwidth():
+    fig, (a, b, c) = plt.subplots(1, 3, figsize=(11.5, 3.8))
+    for prof, lab, col in (("ideal", "no seal leak", GREY), ("seal2g", "seal 2 GΩ", BLUE), ("seal1g", "seal 1 GΩ", RED)):
+        v, r = trial(run("rig_electrode.ini", "small_step.sg", "-P", prof), 0, "ai")
+        a.plot([x * 1000 for x in tt(len(v), r)], v, color=col, label=lab)
+    a.set_xlim(40, 460)
+    a.set_xlabel("time (ms)")
+    a.set_ylabel("potential (mV)")
+    a.legend(frameon=False, fontsize=8)
+    a.set_title("the seal leaks to the bath:\nthe cell is depolarised, its R_in falls", fontsize=9)
+    for prof, lab, col in (("ideal", "true potential of the cell", GREY), ("junction", "recorded (LJP = +10 mV)", ORANGE)):
+        v, r = trial(run("rig_electrode.ini", "small_step.sg", "-P", prof), 0, "ai")
+        b.plot([x * 1000 for x in tt(len(v), r)], v, color=col, label=lab)
+    b.set_xlim(40, 460)
+    b.set_xlabel("time (ms)")
+    b.legend(frameon=False, fontsize=8)
+    b.set_title("the junction potential:\na constant offset of the recording", fontsize=9)
+    for prof, lab, col in (("vc_raw", "no filter", RED), ("vc_bandwidth", "2 kHz Bessel", GREEN)):
+        i, r = trial(run("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", prof), 3, "ai")
+        c.plot([x * 1000 for x in tt(len(i), r)], [x / 1000.0 for x in i], color=col, label=lab)
+    c.set_xlim(49.5, 56)
+    c.set_ylim(-6, 14)
+    c.set_xlabel("time (ms)")
+    c.set_ylabel("current (nA)")
+    c.legend(frameon=False, fontsize=8)
+    c.set_title("the amplifier's bandwidth:\nthe fast transients are filtered", fontsize=9)
+    fig.tight_layout()
+    save(fig, "fig-nrn-seal-junction-bandwidth.svg")
+
+
 def fig_circuit():
     fig, (a, b) = plt.subplots(1, 2, figsize=(10.5, 3.6))
     for ax in (a, b):
@@ -487,3 +517,4 @@ if __name__ == "__main__":
     fig_electrode_vc()
     fig_aec()
     fig_circuit()
+    fig_seal_junction_bandwidth()

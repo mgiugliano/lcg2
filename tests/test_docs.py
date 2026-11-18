@@ -54,7 +54,7 @@ def needs_missing_neuron(files):
         m = re.search(r"^sim_python\s*=\s*([^;\n]+)", text, re.M)
         py = m.group(1).strip() if m else "python3"
         try:
-            has = subprocess.run([py, "-c", "import neuron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            has = subprocess.run([py, "-I", "-c", "import neuron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         except OSError:
             has = False                     # the path is that of another machine
         if not has:

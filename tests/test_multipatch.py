@@ -47,7 +47,7 @@ if h5py is None:
         if found:
             candidates.append(found)
     for cand in candidates:
-        if os.path.exists(cand) and subprocess.run([cand, "-c", "import h5py"], stdout=subprocess.DEVNULL,
+        if os.path.exists(cand) and subprocess.run([cand, "-I", "-c", "import h5py"], stdout=subprocess.DEVNULL,
                                                    stderr=subprocess.DEVNULL).returncode == 0:
             os.execv(cand, [cand] + sys.argv)
     print("FAIL  no Python with h5py was found, so the data files cannot be read back.\n"

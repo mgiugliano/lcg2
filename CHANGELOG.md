@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 (2026-11-18)
+
+- **Added: seal resistance, liquid junction potential and amplifier bandwidth** on the NEURON backend (`[cell]` keys `seal_resistance`,
+  `liquid_junction_potential`, `amplifier_bandwidth`): a seal leak to the bath (a depolarising current and a lower input resistance), a
+  constant offset of the recorded potential (and of the clamped one), and a 4-pole Bessel output filter that rounds fast transients.
+  Defaults are off, and the results without the keys are unchanged. Tutorial K, a figure, profiles in `rig_electrode.ini`; 9 new checks
+  (106 in the NEURON suite).
+- **Added:** the manual as a PDF (`make pdf`, built with Pandoc: `docs/pdf/`), and a detailed installation guide in the README.
+
 ## 0.2.1 (2026-11-18)
 
 Found by running the whole `make test` on Linux (Ubuntu 22.04, gcc, HDF5 1.10.7, NEURON 9.0.2), which passes now:

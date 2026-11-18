@@ -131,13 +131,18 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
    compiled into a cache), electrodes by unit, synapses, and steps them. It keeps the protocol on a private copy of
    fd 1 and sends fd 1 to the log: NEURON prints to stdout.
 3. `-n` runs the adapter in `check` mode (`neuron_check`), so model mistakes show before a run.
-4. Tests: `tests/test_neuron.py` (96 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
+4. Tests: `tests/test_neuron.py` (106 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
    `examples/student_kit/` is the package for students and is tested too.
 
 **The electrode model** (`CCElectrode`, `VCElectrode`, `Noise` in `lcg2_neuron.py`) is used only when a cell has electrode or
 amplifier keys; otherwise the original fast path runs unchanged (the reference test pins it to 1e-9 mV). Units are nA, mV, MOhm, pF, ms,
 so `nA*ms/pF` and `ms/(MOhm*pF)` carry factors of 1000 (a bug that cost an afternoon). `same_as` shares the cell of an earlier
 `[cell]` and gives it a second electrode.
+
+**Seal, junction potential, bandwidth** (0.3): `make_seal` (an extra IClamp, set every step), `liquid_junction_potential` (offset on read and on the clamp command), `Bessel4`
+(two bilinear biquads run at the NEURON step; accurate while corner*dt <= 0.1). **Environment and PDF:** `make doctor` (`tools/doctor.sh`), `make pdf`
+(`docs/pdf/build.sh`, Pandoc + XeLaTeX + rsvg-convert, concatenates README + tutorials). A trap: `python -c "import neuron"` run from the repo root finds
+the `neuron/` folder as a namespace package, so every such check uses `python -I`.
 
 **Traps specific to this backend.** NEURON output on stdout would corrupt the pipe (hence the fd juggling);
 `SIGPIPE` must stay ignored; the adapter must be in its own process group or Ctrl-C kills it before LCG2 can

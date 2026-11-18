@@ -26,6 +26,11 @@ that the repository was left clean.
 | documents | `tests/test_docs.py` | 38 commands | every `$ ./lcg2 ...` line of the manual runs with the exit status it states |
 | clean | `tests/check_clean.py` | | no data file or run folder was left in the repository |
 
+## Checking the environment
+
+`make doctor` lists what is installed (compiler, HDF5, StimGen at the pin, Python, h5py, NEURON, Pandoc), what is missing and how to install it.
+`requirements.txt` and `requirements-linux.txt` pin the Python packages the suites passed with.
+
 ## What needs what
 
 | Needs | Used by | If it is missing |

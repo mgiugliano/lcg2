@@ -25,11 +25,12 @@
 /*
  * main.c -- LCG2: play a StimGen 2 stimulus and record, from the command line.
  *
- * This build is milestones M0 to M2: it reads the command line and the
+ * This build is milestones M0 to M3: it reads the command line and the
  * configuration file, applies the rig profile, reads the stimulus through
- * StimGen, checks everything (units, limits, the rate), and prints the plan
- * (-n).  Playing and recording arrive in the next milestones; until then a run
- * without -n stops, after all the checks, with an explanation and exit status 1.
+ * StimGen, checks everything (units, limits, the rate), and either prints the
+ * plan (-n) or runs the trials on the loopback simulator.  A run writes no data
+ * file yet: recording is milestone M4.  Other devices (NEURON, the board) are
+ * refused with a message.
  *
  * main() is the only place that prints errors and chooses the exit status.
  * The modules below it return -1 and a message instead.
@@ -38,8 +39,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "backend_sim.h"
 #include "cli.h"
 #include "config.h"
+#include "engine.h"
+#include "platform.h"
 #include "stim.h"
 #include "units.h"
 
@@ -183,6 +187,10 @@ static int check_stimulus(const Options *o, const Config *c, Err *err)
         if (o->verbose)
             fprintf(stderr, "lcg2: trial %s: %lld samples, seed %s\n", t.name,
                     (long long)t.n, t.seed);
+        if (stim_remember_digest(&stim, i, t.samples_sha256) < 0) {
+            trial_free(&t);
+            return err_set(err, "out of memory");
+        }
         report.total_samples += t.n;
         for (k = 0; k < t.nch; k++)
             if (peak[k] > report.peak[k]) report.peak[k] = peak[k];
@@ -320,6 +328,98 @@ static void print_plan(const Options *o, const Table *t, const Config *c,
     printf("\nnothing was played.\n");
 }
 
+/* Where the recorded inputs go until M4 writes them to a file: counted and dropped. */
+typedef struct { int64_t samples; int trials; } Counter;
+
+static int count_begin(void *u, const TrialInfo *ti, Err *e) { (void)u; (void)ti; (void)e; return 0; }
+static int count_block(void *u, int64_t first, int64_t count, const double *const x[], Err *e)
+{
+    (void)first; (void)x; (void)e;
+    ((Counter *)u)->samples += count;
+    return 0;
+}
+static int count_end(void *u, const TrialInfo *ti, const TrialRecord *rec, Err *e)
+{
+    (void)ti; (void)rec; (void)e;
+    ((Counter *)u)->trials++;
+    return 0;
+}
+
+/*
+ * Run the trials.  Returns the exit status: 0 success, 1 an error before the
+ * outputs were touched, 2 aborted or failed after.
+ */
+static int do_run(const Options *o, const Config *c, Err *err)
+{
+    Clock clock;
+    Backend *be;
+    Counter counter = { 0, 0 };
+    Sink sink;
+    EngineJob job;
+    EngineReport rep;
+    Timing timing;
+    int status;
+
+    if (c->device == DEV_NEURON) {
+        err_set(err, "device = neuron is not implemented yet (milestone M3b); use device = sim");
+        return 1;
+    }
+    if (c->device == DEV_DAQMX) {
+        err_set(err, "device '%s': there is no hardware backend yet (milestone M6, and the machine "
+                "that will have the board is not decided); use device = sim", c->device_name);
+        return 1;
+    }
+
+    memset(&job, 0, sizeof job);
+    if (o->has_duration) {                         /* -t: one trial with every output at rest */
+        int64_t p, q, n;
+        int exact;
+        if (o->has_rate) { p = o->rate_p; q = o->rate_q; }
+        else if (c->has_rate) { p = c->rate_p; q = c->rate_q; }
+        else {
+            err_set(err, "no sampling rate: give -r RATE or write rate = in [rig]");
+            return 1;
+        }
+        if (config_check_rate(c, p, q, err) < 0) return 1;
+        if (!units_ps_to_samples(o->duration_ps, p, q, &n, &exact) || n < 1) {
+            err_set(err, "-t: the duration is shorter than one sample, or too long");
+            return 1;
+        }
+        job.idle_n = n; job.idle_rate_p = p; job.idle_rate_q = q;
+        memset(&timing, 0, sizeof timing);
+    } else {
+        job.st = &stim;
+        job.opt = o;
+        if (engine_parse_timing(stim.timing, stim.start, &timing, err) < 0) return 1;
+    }
+
+    be = sim_backend_new(NULL);
+    if (!be) { err_set(err, "out of memory"); return 1; }
+    platform_install_abort_handlers();
+    if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
+
+    sink.begin = count_begin; sink.block = count_block; sink.end = count_end; sink.user = &counter;
+    job.cfg = c; job.backend = be; job.clock = &clock; job.sink = &sink;
+    job.timing = timing; job.quiet = o->quiet;
+
+    if (!o->quiet)
+        fprintf(stderr, "lcg2: running %d trial(s) on the %s, %s\n", job.st ? stim.n : 1, be->name,
+                o->realtime ? "in real time" : "in simulated time (-R follows the clock)");
+    status = engine_run(&job, &rep, err);
+    sim_backend_free(be);
+
+    if (status == ENGINE_OK) {
+        if (!o->quiet)
+            fprintf(stderr, "lcg2: done: %d trial(s) in %.3f s%s, largest delay %.3f s; no data file was "
+                    "written: recording is milestone M4\n", rep.completed, (double)rep.elapsed_ns / 1e9,
+                    rep.is_virtual ? " (simulated)" : "", (double)rep.max_delay_ns / 1e9);
+        return 0;
+    }
+    if (status == ENGINE_ABORTED) return 2;
+    /* a failure: before the backend was touched it is an error of the run's setup (1) */
+    return rep.touched ? 2 : 1;
+}
+
 int main(int argc, char **argv)
 {
     Options opt;
@@ -351,8 +451,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    fprintf(stderr, "lcg2: playing and recording are not implemented yet in this "
-            "build (milestones M0 to M2: the stimulus was read and checked); use -n to "
-            "see the plan\n");
-    return 1;
+    {
+        int status;
+        err.msg[0] = 0;                            /* so that only a real message is printed */
+        status = do_run(&opt, &config, &err);
+        if (status != 0 && err.msg[0]) fprintf(stderr, "lcg2: %s\n", err.msg);
+        return status;
+    }
 }

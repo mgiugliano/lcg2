@@ -36,7 +36,9 @@
 #include <string.h>
 #include "cli.h"
 #include "config.h"
+#include "engine.h"
 #include "stim.h"
+#include "units.h"
 
 static int failures, checks;
 
@@ -118,6 +120,75 @@ static void test_error_trap(void)
     }
 }
 
+/* Exact time arithmetic: the 128-bit intermediate, and no overflow where an int64 would. */
+static void test_time_arithmetic(void)
+{
+    uint64_t q, r;
+    int64_t ns, n;
+    int exact;
+
+    CHECK(units_muldiv(1ull << 63, 4, 1ull << 62, &q, &r) && q == 8 && r == 0);
+    CHECK(units_muldiv(UINT64_MAX, UINT64_MAX, UINT64_MAX, &q, &r) && q == UINT64_MAX && r == 0);
+    CHECK(units_muldiv(UINT64_MAX, 2, 3, &q, &r) && q == 12297829382473034410ull && r == 0);
+    CHECK(units_muldiv(10, 10, 3, &q, &r) && q == 33 && r == 1);
+    CHECK(units_muldiv(0, 12345, 7, &q, &r) && q == 0 && r == 0);
+    CHECK(!units_muldiv(UINT64_MAX, UINT64_MAX, 1, &q, &r));          /* does not fit   */
+    CHECK(!units_muldiv(1, 1, 0, &q, &r));                            /* divide by zero */
+    CHECK(units_muldiv(123456789012345ull, 987654321ull, 1000003ull, &q, &r)
+          && q == 121932265328031877ull && r == 497114ull);                                /* reference computed with Python */
+    CHECK(!units_muldiv(123456789012345ull, 987654321098765ull, 1000003ull, &q, &r));  /* 1.2e23 does not fit */
+
+    /* n samples to nanoseconds */
+    CHECK(units_samples_to_ns(1, 20000, 1, &ns) && ns == 50000);
+    CHECK(units_samples_to_ns(40000, 20000, 1, &ns) && ns == 2000000000);
+    CHECK(units_samples_to_ns(1800000000, 500000, 1, &ns) && ns == 3600000000000);    /* an hour at 500 kS/s */
+    CHECK(units_samples_to_ns(5, 5, 2, &ns) && ns == 2000000000);                      /* 2.5 Hz: 5 samples = 2 s */
+    CHECK(units_samples_to_ns(1, 3, 1, &ns) && ns == 333333333);                       /* rounded down */
+    CHECK(!units_samples_to_ns(-1, 20000, 1, &ns));
+    CHECK(!units_samples_to_ns(1, 0, 1, &ns));
+    CHECK(!units_samples_to_ns(INT64_MAX, 1, 1000000, &ns));                           /* would overflow */
+
+    /* a duration to samples */
+    CHECK(units_ps_to_samples(30000000000000ll, 20000, 1, &n, &exact) && n == 600000 && exact);
+    CHECK(units_ps_to_samples(3600ll * 1000000000000ll, 500000, 1, &n, &exact) && n == 1800000000 && exact);
+    CHECK(units_ps_to_samples(125000000ll, 20000, 1, &n, &exact) && n == 3 && !exact);   /* 125 us = 2.5 samples: half rounds up */
+    CHECK(units_ps_to_samples(120000000ll, 20000, 1, &n, &exact) && n == 2 && !exact);   /* 2.4 samples */
+    CHECK(units_ps_to_samples(1, 20000, 1, &n, &exact) && n == 0 && !exact);             /* shorter than one sample */
+    CHECK(units_ps_to_samples(INT64_MAX, 5000000000000ll, 1, &n, &exact) == 0);         /* 4.6e19 samples: too many to count */
+
+    /* durations that timing statements may use */
+    CHECK(units_parse_duration_ex("0s", &ns, 1, 0) == 0 && ns == 0);
+    CHECK(units_parse_duration_ex("0", &ns, 1, 1) == 0 && ns == 0);
+    CHECK(units_parse_duration_ex("5", &ns, 1, 1) == 0 && ns == 5000000000000ll);
+    CHECK(units_parse_duration_ex("5", &ns, 1, 0) == -1);              /* a bare number needs allow_bare */
+    CHECK(units_parse_duration_ex("0s", &ns, 0, 0) == -1);             /* zero needs allow_zero */
+    CHECK(units_parse_duration_ex("2.5s", &ns, 1, 1) == 0 && ns == 2500000000000ll);
+}
+
+/* The timing statements that StimGen writes into a protocol's trial list. */
+static void test_timing_parser(void)
+{
+    Timing t;
+    Err e;
+    CHECK(engine_parse_timing("", "", &t, &e) == 0 && !t.is_period && t.ns == 0 && !t.on_trigger);   /* a plain stimulus */
+    CHECK(engine_parse_timing("gap 0s", "immediately", &t, &e) == 0 && !t.is_period && t.ns == 0 && !t.on_trigger);
+    CHECK(engine_parse_timing("period 5s", "immediately", &t, &e) == 0 && t.is_period && t.ns == 5000000000);
+    CHECK(engine_parse_timing("period 2.5s", "", &t, &e) == 0 && t.is_period && t.ns == 2500000000);
+    CHECK(engine_parse_timing("gap 500ms", "", &t, &e) == 0 && !t.is_period && t.ns == 500000000);
+    CHECK(engine_parse_timing("gap 250us", "", &t, &e) == 0 && t.ns == 250000);
+    CHECK(engine_parse_timing("period 1min", "", &t, &e) == 0 && t.ns == 60000000000);
+    CHECK(engine_parse_timing("gap 0", "", &t, &e) == 0 && t.ns == 0);               /* a bare number is seconds */
+    CHECK(engine_parse_timing("period 5", "", &t, &e) == 0 && t.ns == 5000000000);
+    CHECK(engine_parse_timing("period 5s", "on trigger", &t, &e) == 0 && t.on_trigger);
+    CHECK(engine_parse_timing("gap  3s", "", &t, &e) == 0 && t.ns == 3000000000);    /* two spaces */
+    CHECK(engine_parse_timing("every 5s", "", &t, &e) == -1 && strstr(e.msg, "unknown timing") != NULL);
+    CHECK(engine_parse_timing("period", "", &t, &e) == -1);
+    CHECK(engine_parse_timing("period fast", "", &t, &e) == -1);
+    CHECK(engine_parse_timing("period -5s", "", &t, &e) == -1);
+    CHECK(engine_parse_timing("gap 0s", "when ready", &t, &e) == -1 && strstr(e.msg, "start rule") != NULL);
+    CHECK(engine_parse_timing("gap 0s", "ON TRIGGER", &t, &e) == -1);
+}
+
 int main(void)
 {
     Err e;
@@ -181,6 +252,8 @@ int main(void)
     CHECK(stim_rate_fraction(1.0 / 3.0, &p, &q) == -1);           /* not decimal */
 
     test_error_trap();
+    test_time_arithmetic();
+    test_timing_parser();
 
     printf("unit tests: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

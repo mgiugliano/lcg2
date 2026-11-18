@@ -60,6 +60,27 @@ int units_parse_rate(const char *text, int64_t *p, int64_t *q);
  * that is not a whole number of picoseconds is refused.  Return 0 or -1. */
 int units_parse_duration(const char *text, int64_t *ps);
 
+/* The same, with two relaxations that the timing statements of a protocol need.
+ * StimGen writes the user's own token after "period" or "gap", and its default
+ * is "gap 0s": so a duration of zero is legitimate there, and a bare number
+ * (seconds) is what StimGen itself accepts.  allow_zero: accept 0.  allow_bare:
+ * accept a number with no unit.  Return 0 or -1. */
+int units_parse_duration_ex(const char *text, int64_t *ps, int allow_zero, int allow_bare);
+
+/* floor(a * b / c) computed exactly with a 128-bit intermediate result, and
+ * the remainder.  Returns 1 on success, 0 if c is 0 or the result does not fit
+ * in 64 bits.  This is what turns a number of samples into a time, and a time
+ * into a number of samples, without overflow: one hour at 500 kS/s is 1.8e9
+ * samples, and n * 10^12 would not fit in 64 bits. */
+int units_muldiv(uint64_t a, uint64_t b, uint64_t c, uint64_t *quot, uint64_t *rem);
+
+/* n samples at p/q Hz last how many nanoseconds (rounded down)?  1 on success. */
+int units_samples_to_ns(int64_t n, int64_t p, int64_t q, int64_t *ns);
+
+/* How many samples of p/q Hz fit in a duration given in picoseconds, rounded to
+ * the nearest sample?  *exact says whether it was a whole number.  1 on success. */
+int units_ps_to_samples(int64_t ps, int64_t p, int64_t q, int64_t *n, int *exact);
+
 /* Format p/q Hz for people: "20 kHz", "10 Hz", "2.5 Hz".  Result is in buf. */
 void units_format_rate(char *buf, size_t n, int64_t p, int64_t q);
 

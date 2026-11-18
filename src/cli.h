@@ -57,6 +57,7 @@ typedef struct {
     const char *prefix;          /* -p PREFIX                              */
     const char *stimulus;        /* the stimulus file                      */
     int         dry, quiet, verbose;
+    int         realtime;        /* -R: follow the clock, not the virtual one */
 } Options;
 
 /* Read argv into o.  Returns 0 (also when -h was seen: then o->help is set

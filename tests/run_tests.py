@@ -405,8 +405,8 @@ bad("rate above the board limit (2 inputs)", STIM + ["-r", "300kHz"],
 good("rate at the board limit", STIM + ["-r", "250kHz"], "250 kHz")
 bad("file rate above the limit", STIM, "500 kS/s total",
     cfg=edit("rate = 20kHz", "rate = 400kHz"))
-cases.append(("a run without -n is not implemented yet", BASE, STIM, 1,
-              "not implemented yet", "err"))                  # no -n added
+cases.append(("a run without -n plays on the simulator and says no data file is written yet", BASE, STIM, 0,
+              "no data file was written", "err"))             # no -n added; progress is on stderr
 
 # --------------------------------------------------------------------------
 # The runner

@@ -62,7 +62,7 @@ STIMGEN_SRC ?= ../StimGen/src
 # The library files of StimGen, in the order used to compute the fingerprint.
 SG_FILES = util help render rng parse prims eval protocol sgb sg_api
 
-SRC     = err units config cli json stim main
+SRC     = err units config cli json stim platform backend_sim engine main
 OBJ     = $(SRC:%=$(BUILD)/%.o) $(BUILD)/ini.o
 SG_OBJ  = $(SG_FILES:%=$(BUILD)/stimgen/%.o)
 
@@ -71,7 +71,7 @@ all: check-pin lcg2 tools
 lcg2: $(OBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(SG_OBJ) $(LDLIBS)
 
-$(BUILD)/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h | $(BUILD)
+$(BUILD)/%.o: src/%.c src/lcg2.h src/units.h src/config.h src/cli.h src/json.h src/stim.h src/stimgen_api.h src/platform.h src/backend.h src/backend_sim.h src/engine.h | $(BUILD)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -c -o $@ $<
 
 $(BUILD)/ini.o: vendor/inih/ini.c vendor/inih/ini.h | $(BUILD)
@@ -93,7 +93,7 @@ $(BUILD) $(BUILD)/stimgen:
 #   $(BUILD)/stimdump   dumps what LCG2's stimulus module holds, for comparison
 #   $(BUILD)/jsontool   round-trips JSON through json.c
 # ---------------------------------------------------------------------------
-tools: $(BUILD)/sg $(BUILD)/stimdump $(BUILD)/jsontool $(BUILD)/unit
+tools: $(BUILD)/sg $(BUILD)/stimdump $(BUILD)/jsontool $(BUILD)/unit $(BUILD)/enginetest
 
 $(BUILD)/sg: $(BUILD)/stimgen/main.o $(SG_OBJ)
 	$(CC) $(CFLAGS) -o $@ $(BUILD)/stimgen/main.o $(SG_OBJ) $(LDLIBS)
@@ -105,6 +105,9 @@ $(BUILD)/stimdump: tests/stimdump.c $(LIBOBJ) $(SG_OBJ)
 
 $(BUILD)/unit: tests/unit.c $(LIBOBJ) $(SG_OBJ)
 	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/unit.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
+
+$(BUILD)/enginetest: tests/enginetest.c $(LIBOBJ) $(SG_OBJ)
+	$(CC) $(CFLAGS) $(INIFLAGS) -Isrc -Ivendor/inih -o $@ tests/enginetest.c $(LIBOBJ) $(SG_OBJ) $(LDLIBS)
 
 $(BUILD)/jsontool: tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/jsontool.c $(BUILD)/json.o $(BUILD)/err.o $(LDLIBS)
@@ -133,6 +136,7 @@ test: all
 	$(BUILD)/unit
 	python3 tests/run_tests.py ./lcg2
 	LCG2_BUILD=$(BUILD) python3 tests/test_stim.py
+	LCG2_BUILD=$(BUILD) python3 tests/test_engine.py
 	python3 tests/test_docs.py ./lcg2
 
 clean:

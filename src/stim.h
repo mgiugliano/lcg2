@@ -123,7 +123,15 @@ typedef struct {
     char       timing[80];       /* "period 5s", "gap 2s", ...               */
     char       start[80];        /* "immediately" or "on trigger"            */
     char      *protocol_json;    /* the expanded list, kept for the archive  */
+    char      *digest;           /* n digests of 72 bytes, from the check pass */
+    int        have_digest;
 } Stim;
+
+/* The check pass remembers the digest StimGen gives for the samples of each
+ * trial; the engine compares it with the digest of the trial it re-renders, so
+ * that a buffer that differs from the one that was checked is never played. */
+int  stim_remember_digest(Stim *st, int i, const char *sha);
+int  stim_digest_matches(const Stim *st, int i, const char *sha);
 
 /* Read a text file whole.  A NUL byte, a file over 64 MiB, or a missing file
  * is an error.  *text is malloc'ed. */
@@ -169,9 +177,18 @@ typedef struct {
     struct { int out; double *v; } ao[4];
     int     ndig;
     struct { int out; unsigned char *b; } dig[8];
+    /* The state every output ends on, which is also the state it rests at
+     * between trials and after the run: the value of the rest samples. */
+    double        ao_rest[4];            /* volts, for ao[k]   */
+    unsigned char dig_rest[8];           /* 0 or 1, for dig[k] */
 } Drive;
 
 int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err *err);
+
+/* A drive with every output at its rest value from the configuration, for n
+ * samples (and the rest padding): what a record-only run (-t) plays. */
+int stim_drive_idle(const Config *cfg, int64_t n, Drive *d, Err *err);
+
 void drive_free(Drive *d);
 
 /* The exact fraction p/q of a rate that StimGen reports as a double.  StimGen's

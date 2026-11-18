@@ -463,10 +463,10 @@ def test_clipping(tmp):
           r.stdout.startswith("LCG2 0.0.1, dry run") and "lcg2: warning" not in r.stdout, r.stdout[:200])
     r = lcg2(["-q", w])
     check("-q silences warnings", r.returncode == 0 and "warning" not in r.stderr, r.stderr)
-    # a valid stimulus: a real run stops, but only after all the checks
+    # a valid stimulus: a real run does all the checks first, then plays on the simulator (M3)
     r = run([LCG2, "-c", CFG, "examples/step.sg"])
-    check("a run without -n stops after the checks with a clear message", r.returncode == 1 and
-          "not implemented yet" in r.stderr and "was read and checked" in r.stderr, r.stderr)
+    check("a run without -n plays, and says plainly that no data file is written until M4",
+          r.returncode == 0 and "no data file was written" in r.stderr and "milestone M4" in r.stderr, r.stderr)
     # record only reads no stimulus at all
     r = lcg2(["-t", "30s"])
     check("-t reads no stimulus", r.returncode == 0 and "stimulus   " not in r.stdout, r.stderr)

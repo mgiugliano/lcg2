@@ -179,8 +179,9 @@ void units_format_rate(char *buf, size_t n, int64_t p, int64_t q)
  * An empty unit is not one: unlike StimGen's internal helper, LCG2 insists on
  * the unit, as StimGen's own documentation recommends, because "-t 30" could
  * be read as seconds or minutes. */
-static int64_t unit_ps(const char *u)
+static int64_t unit_ps(const char *u, int allow_bare)
 {
+    if (allow_bare && !*u)      return 1000000000000LL;
     if (!strcmp(u, "s"))        return 1000000000000LL;
     if (!strcmp(u, "ms"))       return 1000000000LL;
     if (!strcmp(u, "us"))       return 1000000LL;
@@ -191,6 +192,11 @@ static int64_t unit_ps(const char *u)
 
 int units_parse_duration(const char *text, int64_t *ps)
 {
+    return units_parse_duration_ex(text, ps, 0, 0);
+}
+
+int units_parse_duration_ex(const char *text, int64_t *ps, int allow_zero, int allow_bare)
+{
     char num[64];
     uint64_t m;
     int e;
@@ -200,9 +206,14 @@ int units_parse_duration(const char *text, int64_t *ps)
     if (i == 0 || i >= sizeof num) return -1;
     memcpy(num, text, i);
     num[i] = 0;
-    unit = unit_ps(text + i);
+    unit = unit_ps(text + i, allow_bare);
     if (unit == 0) return -1;
-    if (!split_decimal(num, &m, &e) || m == 0) return -1;
+    if (!split_decimal(num, &m, &e)) return -1;
+    if (m == 0) {                                      /* zero: only if allowed */
+        if (!allow_zero) return -1;
+        *ps = 0;
+        return 0;
+    }
 
     /* value_ps = m * unit * 10^e; multiply first, then scale by ten, and
      * for a negative e insist that every division by ten is exact. */
@@ -219,4 +230,57 @@ int units_parse_duration(const char *text, int64_t *ps)
     if (x <= 0) return -1;
     *ps = x;
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Exact arithmetic for times                                          */
+/* ------------------------------------------------------------------ */
+
+int units_muldiv(uint64_t a, uint64_t b, uint64_t c, uint64_t *quot, uint64_t *rem)
+{
+    /* The 128-bit product hi:lo, from four 32-bit partial products. */
+    uint64_t a0 = a & 0xFFFFFFFFu, a1 = a >> 32, b0 = b & 0xFFFFFFFFu, b1 = b >> 32;
+    uint64_t p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
+    uint64_t mid = (p00 >> 32) + (p01 & 0xFFFFFFFFu) + (p10 & 0xFFFFFFFFu);
+    uint64_t lo = (p00 & 0xFFFFFFFFu) | (mid << 32);
+    uint64_t hi = p11 + (p01 >> 32) + (p10 >> 32) + (mid >> 32);
+    uint64_t r, q = 0;
+    int i;
+
+    if (c == 0 || hi >= c) return 0;                   /* division by zero, or overflow */
+    r = hi;                                            /* long division, one bit at a time */
+    for (i = 63; i >= 0; i--) {
+        uint64_t carry = r >> 63;
+        r = (r << 1) | ((lo >> i) & 1u);
+        q <<= 1;
+        if (carry || r >= c) { r -= c; q |= 1u; }
+    }
+    *quot = q;
+    *rem = r;
+    return 1;
+}
+
+int units_samples_to_ns(int64_t n, int64_t p, int64_t q, int64_t *ns)
+{
+    uint64_t quot, rem;
+    if (n < 0 || p <= 0 || q <= 0) return 0;
+    /* n / (p/q) seconds = n * q / p seconds = n * q * 1e9 / p nanoseconds */
+    if (!units_muldiv((uint64_t)n, (uint64_t)q * 1000000000u, (uint64_t)p, &quot, &rem)) return 0;
+    if (quot > (uint64_t)INT64_MAX) return 0;
+    *ns = (int64_t)quot;
+    return 1;
+}
+
+int units_ps_to_samples(int64_t ps, int64_t p, int64_t q, int64_t *n, int *exact)
+{
+    uint64_t quot, rem, den;
+    if (ps < 0 || p <= 0 || q <= 0) return 0;
+    /* ps picoseconds = ps / 1e12 s, which holds ps * p / (q * 1e12) samples */
+    den = (uint64_t)q * 1000000000000u;
+    if (!units_muldiv((uint64_t)ps, (uint64_t)p, den, &quot, &rem)) return 0;
+    *exact = rem == 0;
+    if (rem >= den - rem && quot < (uint64_t)INT64_MAX) quot++;   /* round to nearest */
+    if (quot > (uint64_t)INT64_MAX) return 0;
+    *n = (int64_t)quot;
+    return 1;
 }

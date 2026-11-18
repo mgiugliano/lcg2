@@ -185,6 +185,7 @@ void stim_free(Stim *st)
     free(st->td);
     free(st->text);
     free(st->protocol_json);
+    free(st->digest);
     memset(st, 0, sizeof *st);
 }
 
@@ -774,13 +775,18 @@ void drive_free(Drive *d)
     memset(d, 0, sizeof *d);
 }
 
-int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err *err)
+/*
+ * Build the drive of a trial, or (t == NULL) of an idle stretch of n samples.
+ * One function for both, so that an idle output means the same thing in both.
+ */
+static int build_drive(const Trial *t, const Map *map, const Config *cfg, int64_t n,
+                       Drive *d, Err *err)
 {
     int k, j;
-    int64_t i, total = t->n + STIM_REST_PAD;
+    int64_t i, total = n + STIM_REST_PAD;
 
     memset(d, 0, sizeof *d);
-    d->n = t->n;
+    d->n = n;
     d->pad = STIM_REST_PAD;
 
     for (k = 0; k < cfg->n_out; k++) {
@@ -789,7 +795,7 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
         double sc = 1.0;
 
         if (o->skip) continue;
-        for (j = 0; j < t->nch; j++)
+        for (j = 0; t && j < t->nch; j++)
             if (map[j].out == k) { ch = &t->ch[j]; sc = map[j].scale; }
 
         if (o->digital) {
@@ -798,9 +804,10 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
             b = (unsigned char *)calloc((size_t)total, 1);
             if (!b) { drive_free(d); return err_set(err, "out of memory"); }
             if (ch) {
-                for (i = 0; i < t->n; i++) b[i] = ch->x[i] != 0.0;
-                for (i = t->n; i < total; i++) b[i] = ch->rest != 0.0;
+                for (i = 0; i < n; i++) b[i] = ch->x[i] != 0.0;
+                for (i = n; i < total; i++) b[i] = ch->rest != 0.0;
             }
+            d->dig_rest[d->ndig] = ch ? (ch->rest != 0.0) : 0;
             d->dig[d->ndig].out = k;
             d->dig[d->ndig++].b = b;
         } else {
@@ -815,14 +822,47 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
             rest_volts = out_written_volts(o, out_wanted_volts(o, cfg->mode,
                                            ch ? ch->rest * sc : o->rest));
             if (ch)
-                for (i = 0; i < t->n; i++)
+                for (i = 0; i < n; i++)
                     v[i] = out_written_volts(o, out_wanted_volts(o, cfg->mode, ch->x[i] * sc));
             else
-                for (i = 0; i < t->n; i++) v[i] = rest_volts;
-            for (i = t->n; i < total; i++) v[i] = rest_volts;
+                for (i = 0; i < n; i++) v[i] = rest_volts;
+            for (i = n; i < total; i++) v[i] = rest_volts;
+            d->ao_rest[d->nao] = rest_volts;
             d->ao[d->nao].out = k;
             d->ao[d->nao++].v = v;
         }
     }
     return 0;
+}
+
+int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err *err)
+{
+    return build_drive(t, map, cfg, t->n, d, err);
+}
+
+int stim_drive_idle(const Config *cfg, int64_t n, Drive *d, Err *err)
+{
+    return build_drive(NULL, NULL, cfg, n, d, err);
+}
+
+/* ------------------------------------------------------------------ */
+/* What was checked is what is played                                  */
+/* ------------------------------------------------------------------ */
+
+int stim_remember_digest(Stim *st, int i, const char *sha)
+{
+    if (i < 0 || i >= st->n || strlen(sha) >= 72) return -1;
+    if (!st->digest) {
+        st->digest = (char *)calloc((size_t)st->n, 72);
+        if (!st->digest) return -1;
+    }
+    strcpy(st->digest + (size_t)i * 72, sha);
+    st->have_digest = 1;
+    return 0;
+}
+
+int stim_digest_matches(const Stim *st, int i, const char *sha)
+{
+    if (!st->have_digest || i < 0 || i >= st->n) return 0;
+    return sha[0] != 0 && strcmp(st->digest + (size_t)i * 72, sha) == 0;
 }

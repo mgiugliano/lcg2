@@ -55,6 +55,8 @@ void cli_usage(FILE *f)
 "  -e TEXT     stimulus text given here instead of in a file\n"
 "  -p PREFIX   prefix of the names of the output files\n"
 "  -n          dry run: check everything, print the plan, play nothing\n"
+"  -R          real time: a simulator waits as a real board would (the default\n"
+"              is virtual time: as fast as possible, with exact simulated times)\n"
 "  -q, -v      quieter, more verbose\n"
 "  -h          this help\n"
 "\n"
@@ -115,6 +117,7 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
 
         switch (opt) {
         case 'n': o->dry = 1; break;
+        case 'R': o->realtime = 1; break;
         case 'q': o->quiet = 1; break;
         case 'v': o->verbose = 1; break;
         case 'c': case 'P': case 'm': case 'r': case 's': case 'T':

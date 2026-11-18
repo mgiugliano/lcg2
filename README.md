@@ -113,8 +113,9 @@ note.)
 **If the link step fails with "Resource deadlock avoided"**, the folder is inside Dropbox (or another sync service that holds new
 files). Build outside it: `make BUILD=/tmp/lcg2build` (and `make test BUILD=/tmp/lcg2build`).
 
-**If a NEURON rig file does not work**, open it and set `sim_python` to the Python of your environment (the example files name the
-developer's Mac: `/opt/homebrew/opt/python@3.11/bin/python3.11`).
+**If a NEURON rig file does not work**, it cannot find a Python that has NEURON. The example files say `sim_python = python3`, which is
+right when the virtual environment of step 3 is active. Otherwise name the Python in the file, or, without editing anything, tell LCG2
+once: `export LCG2_SIM_PYTHON=~/lcg2_venv/bin/python` (the environment variable overrides the file; the tests use it too).
 
 ### 5. First run
 
@@ -130,7 +131,7 @@ $ python3 $L/examples/read_run.py 20261118_164908.h5                   # look in
 A run leaves **two things**: `STEM.h5` (the data, one HDF5 group per trial) and a hidden folder `.STEM/` that holds the exact
 configuration, command line, stimulus, log and SHA-256 checksums, so that anyone can repeat the run and check that nothing changed.
 
-**Patch a virtual cell** (needs the NEURON environment above; first set `sim_python` in `examples/student_kit/rig.ini`):
+**Patch a virtual cell** (needs the NEURON environment above, active, or `LCG2_SIM_PYTHON` set):
 
 ```console
 $ $L/lcg2 -c $L/examples/student_kit/rig.ini $L/examples/student_kit/current_steps.sg

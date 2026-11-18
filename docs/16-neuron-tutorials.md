@@ -12,7 +12,8 @@ These eleven tutorials teach patch-clamp electrophysiology on cells that exist o
 **Before you start**
 
 1. Build LCG2 (`make`). A Python that has NEURON and h5py: `pip install neuron h5py matplotlib`.
-2. Open `examples/student_kit/rig.ini` and set `sim_python` to that Python (`which python3`).
+2. Make that Python the one LCG2 uses: activate the virtual environment (then `python3` is the right one, as the kit says), or
+   `export LCG2_SIM_PYTHON=/path/to/that/python` (`which python3` in the environment), or edit `sim_python` in `rig.ini`.
 3. Real runs write their files in the **current folder**. The commands below are run from the project folder, for
    brevity, so the files land there (git ignores them). In real use, make a data folder, `cd` into it, and give the
    full path to `lcg2` and to the kit.

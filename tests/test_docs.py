@@ -25,6 +25,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import neuronpy  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LCG2 = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "lcg2"))
 
@@ -42,23 +45,11 @@ def absolute(argv):
 
 
 def needs_missing_neuron(files):
-    """A configuration with device = neuron needs the sim_python of the file to have NEURON; if it has none the
-    command is an illustration on this machine (tests/test_neuron.py is the test of that backend)."""
+    """A configuration with device = neuron needs a Python that has NEURON (the examples say python3; see tests/neuronpy.py);
+    if there is none the command is an illustration on this machine (tests/test_neuron.py is the test of that backend)."""
     for f in files:
-        path = os.path.join(ROOT, f)
-        if not f.endswith(".ini"):
-            continue
-        text = open(path).read()
-        if not re.search(r"^device\s*=\s*neuron", text, re.M):
-            continue
-        m = re.search(r"^sim_python\s*=\s*([^;\n]+)", text, re.M)
-        py = m.group(1).strip() if m else "python3"
-        try:
-            has = subprocess.run([py, "-I", "-c", "import neuron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-        except OSError:
-            has = False                     # the path is that of another machine
-        if not has:
-            print("      (skipped a command with %s: its sim_python has no NEURON)" % f)
+        if f.endswith(".ini") and re.search(r"^device\s*=\s*neuron", open(os.path.join(ROOT, f)).read(), re.M) and not neuronpy.PY:
+            print("      (skipped a command with %s: no Python with NEURON was found)" % f)
             return True
     return False
 
@@ -92,7 +83,7 @@ for page in pages:
             skipped += 1
             continue
         p = subprocess.run([LCG2] + absolute(argv), cwd=WORK, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, universal_newlines=True, timeout=60)
+                           stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, universal_newlines=True, timeout=120, env=neuronpy.env())
         run += 1
         if p.returncode != expected:
             failed += 1

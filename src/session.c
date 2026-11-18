@@ -311,7 +311,7 @@ int session_print_plan(const Session *s, Err *err)
         neuron_script_path(c, script, sizeof script);
         have_log = platform_temp_file(logpath, sizeof logpath) == 0;
         if (!have_log) strcpy(logpath, "/dev/null");
-        no.python = c->sim_python; no.script = script; no.stderr_path = logpath;
+        no.python = neuron_python(c); no.script = script; no.stderr_path = logpath;
         fflush(stdout);
         if (neuron_check(&no, c, err) < 0) {
             if (have_log) platform_delete_file(logpath);

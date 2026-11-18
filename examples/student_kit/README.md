@@ -7,8 +7,8 @@ you describe a rig in a text file, play stimuli into a cell, record, and analyse
 ## Set up (once)
 
 1. Build LCG2 (`make` in the project folder) and note the path of the `lcg2` program.
-2. A Python that has NEURON and h5py: `pip install neuron h5py`. Open `rig.ini` and set `sim_python` to that Python
-   (`which python3`).
+2. A Python that has NEURON and h5py (`pip install -r requirements.txt` in a virtual environment: see the main README). Activate the
+   environment: the rig files say `sim_python = python3`, which is then right. Or `export LCG2_SIM_PYTHON=/path/to/that/python`.
 3. Make a folder for your data and work from it; every run writes a data file and a hidden folder there:
 
 ```console

@@ -23,8 +23,8 @@ with figures are in [16 Tutorials with virtual cells](16-neuron-tutorials.md).
 
 ## Five minutes
 
-Needs a Python that has NEURON (`pip install neuron`); put its path in `sim_python` (the kit has the
-path of the development Mac, `/opt/homebrew/opt/python@3.11/bin/python3.11`; change it).
+Needs a Python that has NEURON (`pip install neuron`). The kit says `sim_python = python3`, right when your virtual environment is
+active; otherwise put the path of that Python in `sim_python`, or set the environment variable `LCG2_SIM_PYTHON`, which overrides the file.
 
 ```console
 $ ./lcg2 -c examples/student_kit/rig.ini -n examples/student_kit/current_steps.sg
@@ -49,7 +49,7 @@ A virtual rig is the configuration of a real one, plus cells. The pipette `P1` i
 ```ini
 [rig]
 device     = neuron
-sim_python = /opt/homebrew/opt/python@3.11/bin/python3.11
+sim_python = python3     ; or the path of a Python that has NEURON (LCG2_SIM_PYTHON overrides it)
 mode       = cc
 rate       = 20kHz
 
@@ -74,7 +74,7 @@ electrode (voltage only).
 
 | Key | Default | Meaning |
 |:--|:--|:--|
-| `sim_python` | `python3` | the Python that has NEURON. If it has none, the error names this key |
+| `sim_python` | `python3` | the Python that has NEURON. If it has none, the error names this key. **The environment variable `LCG2_SIM_PYTHON`, if set, overrides it** (so one file works on every machine) |
 | `sim_script` | the adapter that ships with LCG2 | only to replace the adapter; a relative path starts in the folder of the configuration file |
 | `sim_dt` | `25us` | the largest integration step. A sample period is divided into the fewest equal steps no larger than this |
 | `sim_celsius` | `6.3` | temperature in °C (global in NEURON): the classical squid axon |

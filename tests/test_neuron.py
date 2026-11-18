@@ -61,6 +61,7 @@ def find_python():
     return None
 
 
+os.environ.pop("LCG2_SIM_PYTHON", None)        # the tests name their Python in the files they write
 PY = None if os.environ.get("LCG2_NO_NEURON") else find_python()
 if PY is None:
     print("SKIPPED  device = neuron: no Python with both NEURON and h5py was found.\n"
@@ -70,6 +71,7 @@ if os.path.realpath(PY) != os.path.realpath(sys.executable):
     os.execv(PY, [PY] + sys.argv)
 
 import array   # noqa: E402
+import re      # noqa: E402
 import h5py    # noqa: E402
 
 failures = []
@@ -106,6 +108,11 @@ def h5_of(cwd):
 def folder_of(cwd):
     d = sorted(glob.glob(os.path.join(cwd, ".2*")))
     return d[-1] if d else None
+
+
+def fix_py(ini_text):
+    """The kit names `python3`: make the copy name the Python that runs this test."""
+    return re.sub(r"^sim_python\s*=[^\n]*$", "sim_python = " + PY, ini_text, flags=re.M)
 
 
 def text(x):
@@ -549,7 +556,7 @@ def test_kit(tmp):
     # the kit names the Python of the development Mac: use the one running this test
     for f in os.listdir(KIT):
         if f.endswith(".ini"):
-            s = open(os.path.join(KIT, f)).read().replace("/opt/homebrew/opt/python@3.11/bin/python3.11", PY)
+            s = fix_py(open(os.path.join(KIT, f)).read())
             write(os.path.join(d, f), s)
         elif not os.path.isdir(os.path.join(KIT, f)):
             shutil.copy(os.path.join(KIT, f), d)
@@ -600,7 +607,7 @@ def test_tutorials(tmp):
     for f in os.listdir(KIT):
         p = os.path.join(KIT, f)
         if f.endswith(".ini"):
-            write(os.path.join(d, f), open(p).read().replace("/opt/homebrew/opt/python@3.11/bin/python3.11", PY))
+            write(os.path.join(d, f), fix_py(open(p).read()))
         elif os.path.isdir(p):
             shutil.copytree(p, os.path.join(d, f))
         else:
@@ -662,7 +669,7 @@ def test_electrodes(tmp):
     for f in os.listdir(KIT):
         pth = os.path.join(KIT, f)
         if f.endswith(".ini"):
-            write(os.path.join(d, f), open(pth).read().replace("/opt/homebrew/opt/python@3.11/bin/python3.11", PY))
+            write(os.path.join(d, f), fix_py(open(pth).read()))
         elif os.path.isdir(pth):
             shutil.copytree(pth, os.path.join(d, f))
         elif not f.endswith(".pyc"):

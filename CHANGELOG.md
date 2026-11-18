@@ -7,6 +7,8 @@
   constant offset of the recorded potential (and of the clamped one), and a 4-pole Bessel output filter that rounds fast transients.
   Defaults are off, and the results without the keys are unchanged. Tutorial K, a figure, profiles in `rig_electrode.ini`; 9 new checks
   (106 in the NEURON suite).
+- **Added: `LCG2_SIM_PYTHON`**, an environment variable that overrides `sim_python`, and the example rigs now say `sim_python = python3` (the
+  virtual environment's Python), so the same files work on every machine; `make doctor`; pinned `requirements*.txt`.
 - **Added:** the manual as a PDF (`make pdf`, built with Pandoc: `docs/pdf/`), and a detailed installation guide in the README.
 
 ## 0.2.1 (2026-11-18)

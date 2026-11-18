@@ -84,6 +84,12 @@ void neuron_script_path(const Config *c, char *out, size_t n)
     else snprintf(out, n, "%s/%s", c->cfg_dir, c->sim_script);
 }
 
+const char *neuron_python(const Config *c)
+{
+    const char *e = getenv("LCG2_SIM_PYTHON");
+    return e && *e ? e : c->sim_python;
+}
+
 /* ------------------------------------------------------------------ */
 /* Units: the amplifier, inverted                                      */
 /* ------------------------------------------------------------------ */

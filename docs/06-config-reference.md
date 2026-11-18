@@ -32,7 +32,7 @@ key = value   ; comment      a key; a ';' after a space starts a comment
 | `mode` | one of this and `-m` | `cc`, `vc` | amplifier mode (`-m` overrides) |
 | `rate` | no | a rate: `20kHz`, `10000` | default sampling rate (a stimulus can state its own) |
 | `trigger` | no | `PFI0` ... `PFI15` | the line a `start on trigger` waits on |
-| `sim_python` | no (default `python3`) | a path | a Python that has NEURON; refused with other devices |
+| `sim_python` | no (default `python3`) | a path | a Python that has NEURON; `LCG2_SIM_PYTHON` in the environment overrides it; refused with other devices |
 | `sim_script` | no | a path | replaces the NEURON adapter that ships with LCG2 (a relative path starts in the folder of the file); refused with other devices |
 | `sim_dt` | no (`25us`) | a duration | largest NEURON integration step; refused with other devices |
 | `sim_celsius` | no (`6.3`) | a number | temperature, °C; refused with other devices |

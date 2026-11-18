@@ -233,7 +233,7 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
         Err e3;
         neuron_script_path(&s->config, script, sizeof script);
         if (lcg_sha256_file(script, hex, NULL, &e3) < 0) strcpy(hex, "unreadable");
-        sb_add(&b, "  \"neuron\": {\"sim_python\": "); sb_json(&b, s->config.sim_python);
+        sb_add(&b, "  \"neuron\": {\"sim_python\": "); sb_json(&b, neuron_python(&s->config));
         sb_add(&b, ", \"adapter\": "); sb_json(&b, script);
         sb_add(&b, ", \"adapter_sha256\": "); sb_json(&b, hex);
         sb_addf(&b, ", \"dt_ms\": %.9g, \"celsius\": %.9g, \"v_init\": %.9g, \"settle_ms\": %.9g, "
@@ -451,7 +451,7 @@ int run_execute(const RunParams *rp, Err *err)
         memset(&no, 0, sizeof no);
         neuron_script_path(c, script, sizeof script);
         snprintf(logpath, sizeof logpath, "%s/neuron.log", ar.dir);
-        no.python = c->sim_python; no.script = script; no.stderr_path = logpath;
+        no.python = neuron_python(c); no.script = script; no.stderr_path = logpath;
         be = neuron_backend_new(&no);                   /* copies the strings */
     } else {
         be = sim_backend_new(&rp->sim);

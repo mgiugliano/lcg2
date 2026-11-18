@@ -132,8 +132,8 @@ def load_neuron():
     try:
         from neuron import h
     except Exception as e:
-        raise Problem("cannot import NEURON in %s (%s). Point sim_python in [rig] at a Python that has NEURON "
-                      "(pip install neuron); on the development Mac that is "
+        raise Problem("cannot import NEURON in %s (%s). Point sim_python in [rig] (or the environment variable LCG2_SIM_PYTHON) at a Python "
+                      "that has NEURON (pip install neuron); on the development Mac that is "
                       "/opt/homebrew/opt/python@3.11/bin/python3.11" % (sys.executable, e))
     h.load_file("stdrun.hoc")
     return h

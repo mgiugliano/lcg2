@@ -59,6 +59,10 @@ typedef struct {
  * file), or the one that ships with LCG2 (its place is baked in by the Makefile). */
 void neuron_script_path(const Config *cfg, char *out, size_t n);
 
+/* The Python to run: the environment variable LCG2_SIM_PYTHON if it is set (so that the same configuration file works on
+ * every machine), else [rig] sim_python. */
+const char *neuron_python(const Config *cfg);
+
 Backend *neuron_backend_new(const NeuronOpts *opts);
 void     neuron_backend_free(Backend *be);
 

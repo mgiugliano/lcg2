@@ -19,6 +19,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import neuronpy  # noqa: E402
+
 LCG2 = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./lcg2")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -452,32 +455,21 @@ def run_case(tmp, case):
     return problems, p
 
 
-def _has_neuron(py):
-    """True if the Python at this path exists and can import neuron (a path from another machine does not exist)."""
-    try:
-        return subprocess.run([py, "-I", "-c", "import neuron"], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL).returncode == 0
-    except OSError:
-        return False
-
-
 def test_examples():
     """Every example configuration loads (the deliberately wrong one is refused)."""
     problems = []
     for path in sorted(os.listdir(os.path.join(ROOT, "examples"))):
         if not path.endswith(".ini"):
             continue
+        text = open(os.path.join(ROOT, "examples", path)).read()
+        if re.search(r"^device\s*=\s*neuron", text, re.M) and not neuronpy.PY:
+            # a dry run of a neuron rig builds its cells for real: it needs a Python with NEURON
+            print("      (skipped examples/%s: no Python with NEURON was found; tests/test_neuron.py covers it)" % path)
+            continue
         p = subprocess.run([LCG2, "-c", os.path.join("examples", path), "-n", "examples/step.sg"],
                            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           universal_newlines=True)
+                           universal_newlines=True, env=neuronpy.env())
         want = 1 if path in ("bad_rest.ini", "low_limit.ini") else 0   # refused on purpose
-        text = open(os.path.join(ROOT, "examples", path)).read()
-        if "device     = neuron" in text or "device = neuron" in text:
-            # a dry run of a neuron rig builds its cells for real: it needs the sim_python of the file
-            py = [l.split("=", 1)[1].split(";")[0].strip() for l in text.splitlines() if l.startswith("sim_python")]
-            if not py or not _has_neuron(py[0]):
-                print("      (skipped examples/%s: its sim_python has no NEURON; tests/test_neuron.py covers it)" % path)
-                continue
         if p.returncode != want:
             problems.append("examples/%s: exit status %d, expected %d (%s)"
                             % (path, p.returncode, want, p.stderr.strip()[:120]))

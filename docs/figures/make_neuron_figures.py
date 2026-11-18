@@ -38,7 +38,8 @@ def run(rig, stim, *extra):
     """Run lcg2 in the scratch folder; return the data file of that run."""
     before = set(glob.glob(os.path.join(WORK, "*.h5")))
     r = subprocess.run([LCG2, "-q"] + list(extra) + ["-c", os.path.join(KIT, rig), os.path.join(KIT, stim)], cwd=WORK,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                       env=dict(os.environ, LCG2_SIM_PYTHON=sys.executable))      # the Python that runs this script has NEURON
     if r.returncode != 0:
         sys.exit("lcg2 failed: %s" % r.stderr)
     new = sorted(set(glob.glob(os.path.join(WORK, "*.h5"))) - before)

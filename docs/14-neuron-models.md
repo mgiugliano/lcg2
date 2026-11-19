@@ -1,7 +1,7 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
 > **Status: built (milestone M3b), with a pipette and amplifier model since 0.2 (seal, junction potential and bandwidth since 0.3).** `device = neuron` works with NEURON 8.2.6 (Mac,
-> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (106 checks). The numerical result
+> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (119 checks). The numerical result
 > equals a plain NEURON script to 1e-9 mV (see [How a trial is simulated](#how-a-trial-is-simulated)).
 
 **The idea.** Everything you do on the real rig you do here, with the same command line, the same
@@ -76,7 +76,7 @@ electrode (voltage only).
 |:--|:--|:--|
 | `sim_python` | `python3` | the Python that has NEURON. If it has none, the error names this key. **The environment variable `LCG2_SIM_PYTHON`, if set, overrides it** (so one file works on every machine) |
 | `sim_script` | the adapter that ships with LCG2 | only to replace the adapter; a relative path starts in the folder of the configuration file |
-| `sim_dt` | `25us` | the largest integration step. A sample period is divided into the fewest equal steps no larger than this |
+| `sim_dt` | `25us` | the largest integration step. A sample period is divided into the fewest equal steps no larger than this (or than the smaller step an amplifier filter or a lagged compensation needs: see [The step](#the-step)) |
 | `sim_celsius` | `6.3` | temperature in °C (global in NEURON): the classical squid axon |
 | `sim_v_init` | `-65` | mV, the potential every cell starts from |
 | `sim_settle` | `0s` | time the cells run at rest before the first trial (it also runs after your `init` code) |
@@ -94,7 +94,7 @@ electrode (voltage only).
 | `electrode` | where the pipette sits: `soma(0.5)` (default), `dend[2](1)`, `apical(0.5)` ... |
 | `series_resistance` | voltage clamp only, MΩ (default 1, NEURON's own); `electrode_resistance`, when given, replaces it |
 | `same_as` | the cell of an earlier `[cell]`: a **second electrode on the same cell** (give it its own `electrode` and electrode keys) |
-| the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `cp_compensation`, `seal_resistance`, `liquid_junction_potential`, `amplifier_bandwidth`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
+| the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `rs_lag`, `cp_compensation`, `seal_resistance`, `liquid_junction_potential`, `amplifier_bandwidth`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
 | `d_lambda` | morphology only: the *d_lambda* rule for the number of segments (default 0.1; 0 keeps what the file gives) |
 | anything else | a **parameter of the model**: passed to your model, and an error if the model does not take it |
 
@@ -196,28 +196,34 @@ potential. A real pipette is not, and the artefacts it adds are what you learn t
 |:--|:--|:--|:--|
 | `electrode_resistance` | MΩ | 0 | the pipette's series resistance Re |
 | `electrode_capacitance` | pF | 0 | the pipette's capacitance to ground, Ce (Cp in voltage clamp) |
-| `recording_noise` | mV or pA, rms | 0 | white Gaussian noise added to every recorded value of this pipette (in the unit of the channel) |
+| `recording_noise` | mV or pA, rms | 0 | white Gaussian noise on every recorded value of this pipette (in the unit of the channel): its rms at the sampling rate without a filter; with `amplifier_bandwidth` it passes the filter too |
 | `noise_seed` | integer | 1 | the noise is reproducible; the stream goes on from trial to trial |
 | `bridge_balance` | MΩ | 0 | current clamp: the amplifier subtracts Rb × I_cmd from the recording |
 | `cap_neutralization` | pF | 0 | current clamp: positive feedback that cancels part of Ce (must stay below `electrode_capacitance`) |
 | `rs_compensation` | percent | 0 | voltage clamp: the clamp adds `α Rs I` to its command (α below 100 %) |
+| `rs_lag` | µs | 10 | voltage clamp: the time constant of the compensation loop (the LAG knob); 0 is an ideal, instantaneous compensation |
 | `cp_compensation` | pF | 0 | voltage clamp: the recording subtracts `Cpc dV/dt` (the pipette capacitance transient) |
 | `seal_resistance` | GΩ | 0 (none) | a finite seal: a leak from the cell's inside to the bath, `-(Vm - 0)/Rseal` into the cell; needs an `[out]` of the pipette |
 | `liquid_junction_potential` | mV | 0 | the recording reads `Vm + LJP`; the cell really sits at the command minus LJP |
-| `amplifier_bandwidth` | kHz | 0 (none) | everything recorded passes a 4-pole Bessel low-pass with this −3 dB corner; accurate while corner × `sim_dt` ≤ 0.1 |
+| `amplifier_bandwidth` | kHz | 0 (none) | everything recorded, its noise included, passes a 4-pole Bessel low-pass with this −3 dB corner (at most 100 kHz) |
 
 ![the electrode circuits](figures/fig-nrn-electrode-circuit.svg)
 
 **Current clamp.** The electrode is Re in series with the cell and Ce from its amplifier side to ground:
 `(Ce − Cn) dVn/dt = I_cmd − (Vn − Vm)/Re`. The cell receives `(Vn − Vm)/Re` (the capacitance diverts the fast part of
-the current) and the amplifier reports `Vn − Rb × I_cmd` plus noise. With `bridge_balance = electrode_resistance` the steady
-drop `Re × I` is removed exactly (a test checks that to 5 µV), but the capacitor still delays the electrode node, so
-the balance alone overshoots at every step; neutralising most of Ce with positive feedback shrinks that transient.
+the current) and the amplifier reports `Vn − Rb × I_cmd` plus noise. The node equation is solved exactly over each NEURON step,
+so the result does not depend on the step (a test compares 25 and 1 µs). With `bridge_balance = electrode_resistance` the steady
+drop `Re × I` is removed exactly (without Ce the balanced recording equals the ideal one sample for sample), but the capacitor still
+delays the electrode node, so the balance alone overshoots at every step; neutralising most of Ce with positive feedback shrinks that
+transient. The pipette starts at rest on the cell as initialised (`sim_v_init`, the `init` hooks).
 **Voltage clamp.** The clamp's series resistance Rs (`electrode_resistance`, or `series_resistance`) separates the amplifier
 from the cell: the cell sees the command minus `Rs × I`, so large currents are poorly clamped and fast ones are slowed.
-`rs_compensation` is the usual positive feedback. The pipette capacitance Cp draws a transient `Cp dV/dt` at every
-command step; `cp_compensation` cancels it. Both compensations are *settings you choose*, like on an amplifier: too much
-is as bad as too little (the validity checks refuse a neutralisation at or above Ce and a compensation of 100 %).
+`rs_compensation` is the usual positive feedback, and like a real amplifier's it acts through a low-pass with the time constant
+`rs_lag`: `lag dVc/dt = α Rs I − Vc`, the clamp adding `Vc` to its command. The loop is stable below 100 % but rings when α is
+large or the lag long, as on a rig (a test compares it with the exact solution of the circuit for a passive cell). `rs_lag = 0`
+gives an ideal compensation instead: the clamp's series resistance becomes exactly `(1 − α) Rs`. The pipette capacitance Cp draws a
+transient `Cp dV/dt` at every command step; `cp_compensation` cancels it. Both compensations are *settings you choose*, like on an
+amplifier: too much is as bad as too little (the validity checks refuse a neutralisation at or above Ce and a compensation of 100 %).
 
 ![seal, junction potential and bandwidth](figures/fig-nrn-seal-junction-bandwidth.svg)
 
@@ -228,9 +234,22 @@ falls from 77 to 42 MΩ (the cell is nonlinear: the leak moves it up the steep p
 **The liquid junction potential.** Pipette and bath solutions differ, so the recorded potential is offset from the cell's by a constant:
 `recorded = Vm + LJP`. In voltage clamp the cell sits at `command − LJP`. Nothing corrects it for you, as on a real rig.
 **The bandwidth.** A real amplifier filters its output (a 4-pole Bessel filter, 2-10 kHz) before the digitiser: fast transients, such
-as the pipette's capacitive spike and the onset of a step, are rounded. The filter runs at the NEURON step with the bilinear transform,
-so that it behaves like the analogue one: its gain is 0.71 at the corner and 0.20 at twice the corner, to within 1 % while the corner
-times `sim_dt` is at most 0.1 (a 10 kHz corner needs `sim_dt = 10us`, which the program tells you if you forget).
+as the pipette's capacitive spike and the onset of a step, are delayed and spread (their charge is kept), and the noise is reduced.
+The filter runs at the NEURON step with the bilinear transform, so that it behaves like the analogue one: gain 0.7071 at the corner
+and 0.2137 at twice the corner, within 0.25 % of the analogue filter from 0 to twice the corner (a test checks it against the
+transfer function). The noise is added *before* the filter, as on a rig: white noise of the density that gives `recording_noise`
+rms at the sampling rate, so through the filter its rms becomes `recording_noise × √(2 × ENBW / rate)`, where ENBW ≈ 1.05 × the
+corner is the filter's noise bandwidth (0.3 mV at 20 kHz through 2 kHz: 0.137 mV).
+
+### The step
+
+The filter and the lagged compensation are computed at the NEURON step, and both need it small: a filter within 0.25 % needs
+corner × step ≤ 0.0125 (the error of the bilinear transform grows as the square of the step: it would be 17 % at twice the corner
+with corner × step = 0.1), and the compensation loop needs 20 steps per `rs_lag`. So within a trial the step is made as small as the
+pipettes need, whatever `sim_dt` says: 6.25 µs for a 2 kHz filter, 0.5 µs for the default 10 µs lag. `neuron.log` says which step was
+used and why, and `-n` shows it on the electrode's line (`step 0.5 us`). The pauses between trials, where nothing is recorded, run
+at `sim_dt` with an ideal compensation, which has the same steady state, so a protocol does not take much longer: the 6-trial
+voltage-clamp protocol of tutorial J3 with compensation takes about 2 s.
 
 **Two electrodes on one cell.** `[cell V0]` with `same_as = P1` is a second pipette on the cell of `P1`: put its own
 `electrode` (another section, or the same soma) and its own electrode keys, and use `[out V0]`/`[in V0]` as for any pipette.
@@ -262,6 +281,7 @@ file has `device = neuron` and `virtual_time = 1`.
 | `the NEURON model produced a value that is not a number ... the model diverged` | an unstable model: shrink `sim_dt`, check the geometry and the channels |
 | `mechanisms: nrnivmodl failed` | a `.mod` file does not compile; the compiler's messages are in `neuron.log` |
 | `cap_neutralization (...) must stay below electrode_capacitance` / `rs_compensation must be below 100 percent` | an amplifier setting that would oscillate |
+| `rs_lag must be 0 (ideal compensation) or at least 1 us` / `amplifier_bandwidth must be at most 100 kHz` | a setting no amplifier has (and that would need an absurdly small step) |
 | `electrode_resistance ... is too small for sim_dt` | the lumped electrode would be numerically unstable: use at least the Re it names, or a smaller `sim_dt` |
 | `same_as = 'X' must name a [cell] written EARLIER in the file` | a second electrode needs its cell defined first |
 
@@ -275,11 +295,13 @@ $ python3.11 neuron/lcg2_neuron.py --check examples/models/t1.ini
 
 * **One electrode model**: a lumped pipette (Re, Ce), a first-order amplifier with the settings above, a seal leak
   with a 0 mV reversal, a constant junction potential and a 4-pole Bessel output filter; no whole-cell capacitance
-  compensation (Cm), no seal that changes with time, no junction potential that drifts, no filter on the command. Noise is white, Gaussian, added to the
-  recording only (not to the injected current), with the same level at every sample rate. In voltage clamp the pipette
-  capacitance transient is spread over the one sample in which the command changes (the amplifier of a real rig is
-  band-limited instead). The simulation is stable only while Re × C(membrane under the electrode) exceeds `sim_dt`
-  (the program says so and gives the smallest Re).
+  compensation (Cm), no prediction (supercharging) in the Rs compensation, no seal that changes with time, no junction potential that
+  drifts, no filter on the command. Noise is white, Gaussian, on the recording only (not on the injected current); without a filter
+  it has the same rms at every sample rate. In voltage clamp the pipette capacitance transient is spread over the one sample in which
+  the command changes (its charge `Cp ΔV` is exact). NEURON's own integration is first order (backward Euler): fast transients are
+  accurate to about the step over their time constant (the lagged compensation of a 10 MΩ, 90 % clamp is within 1.2 % of the exact
+  solution). The simulation is stable only while Re × C(membrane under the electrode) exceeds `sim_dt` (the program says so and
+  gives the smallest Re).
 * **Not dynamic clamp.** The command is a recorded stimulus, fixed before the trial.
 * Digital outputs are not connected to anything (no cell has a digital input); they are recorded in the file as
   commanded, as with every backend.

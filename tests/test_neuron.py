@@ -727,8 +727,10 @@ def test_electrodes(tmp):
           peak(rvc) > 0.5 * peak(ivc), (peak(rvc), peak(ivc)))
     check("vc: rs_compensation 70 percent restores much of it (%.0f pA)" % peak(cvc), abs(peak(cvc)) > 1.5 * abs(peak(rvc)),
           (peak(rvc), peak(cvc)))
-    check("vc: the pipette capacitance transient (5 pF) is in the raw first sample and cp_compensation removes it",
-          rvc[1000] - cvc[1000] > 2000, (rvc[1000], cvc[1000]))
+    cpc = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_cp", trial=3)
+    check("vc: the pipette transient is Cp*dV/T = 5 pF * 70 mV / 50 us = 7000 pA in the first sample of the step, and "
+          "cp_compensation removes exactly that (%.3f pA)" % (rvc[1000] - cpc[1000]), abs(rvc[1000] - cpc[1000] - 7000) < 1e-6,
+          (rvc[1000], cpc[1000]))
 
     # the seal, the liquid junction potential, the amplifier's bandwidth
     seal = trace_of("rig_electrode.ini", "small_step.sg", "-P", "seal1g")
@@ -755,25 +757,29 @@ def test_electrodes(tmp):
           abs((vseal[500] - vraw[500]) + 140) < 30, vseal[500] - vraw[500])
     vraw3 = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_raw", trial=3)
     vbw3 = trace_of("rig_electrode.ini", "vc_steps.sg", "-m", "vc", "-P", "vc_bandwidth", trial=3)
-    check("bandwidth: in voltage clamp the 2 kHz filter takes most of the one-sample capacitive spike (%.0f against %.0f pA)" % (vbw3[1000], vraw3[1000]),
-          vbw3[1000] < 0.2 * vraw3[1000], (vbw3[1000], vraw3[1000]))
+    q_raw, q_bw = sum(vraw3[1000:2550]), sum(vbw3[1000:2550])            # the charge from the step to rest again (pA * samples)
+    pk_raw, pk_bw = max(vraw3[1000:1040]), max(vbw3[1000:1040])
+    check("bandwidth: in voltage clamp the 2 kHz filter spreads the capacitive spike (peak %.0f against %.0f pA) but keeps its "
+          "charge (%.2f%% apart): a filter delays and smooths, it removes nothing" % (pk_bw, pk_raw, 100 * abs(q_bw / q_raw - 1)),
+          pk_bw < 0.5 * pk_raw and abs(q_bw / q_raw - 1) < 0.01, (pk_bw, pk_raw, q_bw, q_raw))
     import math as _m
     sys.path.insert(0, os.path.join(ROOT, "neuron"))
     import lcg2_neuron as _L
 
     def gain(fc, mult):
+        dt = min(0.025, _L.Bessel4.MAX_FC_DT / fc)                  # the step the adapter uses for this corner
         f = _L.Bessel4(fc)
-        f.set_dt(0.025)
+        f.set_dt(dt)
         f.reset(0.0)
-        n, pk = int(60 / 0.025), 0.0
+        n, pk = int(60 / dt), 0.0
         for i in range(n):
-            y = f.step(_m.sin(2 * _m.pi * fc * mult * i * 0.025))
+            y = f.step(_m.sin(2 * _m.pi * fc * mult * i * dt))
             if i > n // 2:
                 pk = max(pk, abs(y))
         return pk
     g1, g2, g3 = gain(2.0, 0.1), gain(2.0, 1.0), gain(2.0, 2.0)
-    check("bandwidth: the filter is a 4-pole Bessel: gain %.3f at 0.1 fc, %.3f at fc (-3 dB is 0.707), %.3f at 2 fc" % (g1, g2, g3),
-          g1 > 0.99 and abs(g2 - 0.7071) < 0.02 and abs(g3 - 0.2) < 0.03, (g1, g2, g3))
+    check("bandwidth: the filter is a 4-pole Bessel: gain %.4f at 0.1 fc, %.4f at fc (-3 dB is 0.7071), %.4f at 2 fc (analogue 0.2137)"
+          % (g1, g2, g3), g1 > 0.99 and abs(g2 - 0.7071) < 0.002 and abs(g3 - 0.2137) < 0.002, (g1, g2, g3))
 
     # active electrode compensation: noise injected through a bad electrode, the electrode learned and subtracted
     w = newdir(tmp, "el_aec")
@@ -790,7 +796,7 @@ def test_electrodes(tmp):
           and abs(both[1]).max() < 200)
 
     def bad(label, extra, expect):
-        w = newdir(tmp, "el_bad_%d" % len(label))
+        w = newdir(tmp, "el_bad_" + re.sub(r"\W", "_", label))
         ini = open(os.path.join(d, "rig_electrode.ini")).read()
         if extra.startswith("electrode_resistance"):
             ini = ini.replace("electrode_resistance  = 50", extra, 1)
@@ -805,15 +811,137 @@ def test_electrodes(tmp):
     bad("an electrode too small for the time step", "electrode_resistance = 0.5", "too small for sim_dt")
     bad("an unknown unit", "bridge_balance = 50 ohms", "unknown unit")
     bad("a seal too leaky for the time step", "seal_resistance = 0.0001", "seal_resistance")
-    bad("a bandwidth too high for the time step", "amplifier_bandwidth = 20", "too high for sim_dt")
+    bad("a bandwidth wider than any amplifier's", "amplifier_bandwidth = 200", "at most 100 kHz")
+    bad("a compensation lag below a microsecond", "rs_lag = 0.5us", "at least 1 us")
     bad("same_as naming a cell that is not there", "[cell W]\nsame_as = Nope", "must name a [cell] written EARLIER")
+
+
+def test_physics(tmp):
+    """The electrode and amplifier model against references derived independently of the adapter: exact solutions
+    of the linear circuits, the analogue Bessel filter, the d_lambda rule (the audit of 2026-11-18)."""
+    import cmath
+    import math
+    import numpy as np
+    runs = [0]
+
+    def run(cells, stim, rig="", args=(), trial=0):
+        runs[0] += 1
+        w = newdir(tmp, "phys_%d" % runs[0])
+        write_ini(w, cells="[cell P1]\nmodel = hh_soma\n" + cells, rig=rig)
+        write(os.path.join(w, "s.sg"), stim)
+        r = lcg(["-q", "-s", "3"] + list(args) + ["-c", "rig.ini", "s.sg"], w)
+        if r.returncode != 0:
+            print("      run failed:", r.stderr)
+            return None
+        with h5py.File(h5_of(w), "r") as f:
+            g = f["trial_%04d/ai" % trial]
+            return {k: g[k][:] for k in g}
+
+    step = "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA {\n 20ms dc(0)\n 30ms dc(300)\n 20ms dc(0)\n}\n"
+    passive = "gnabar = 0\ngkbar = 0\nel = -80\n"
+    # a resistive electrode, balanced: the recording is the ideal one, sample for sample (no lag of one step)
+    for dt in ("25us", "50us"):
+        ideal = run("", step, "sim_dt = %s" % dt)
+        br = run("electrode_resistance = 50\nbridge_balance = 50\n", step, "sim_dt = %s" % dt)
+        e = abs(br["P1"] - ideal["P1"]).max() if ideal and br else 1
+        check("cc: Re = Rb = 50 MOhm, no capacitance, equals the ideal recording at sim_dt %s (%.1e mV)" % (dt, e), e < 1e-9, e)
+    # the pipette starts at rest on the cell as initialised (v_init), not at -65 mV
+    t = run(passive + "electrode_resistance = 50\nelectrode_capacitance = 3\nbridge_balance = 50\n", step, "sim_v_init = -80")
+    check("cc: with Re and Ce the first samples are the cell at v_init = -80 mV (%s)" % (t and list(np.round(t["P1"][:3], 6))),
+          t is not None and abs(t["P1"][:3] + 80).max() < 1e-6)
+    # neutralisation: Re*(Ce - Cn) = 25 us, the node solved exactly: the result does not depend on the step
+    small = "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA {\n 20ms dc(0)\n 20ms dc(-20)\n}\n"
+    errs = []
+    for dt in ("25us", "1us"):
+        a = run("", small, "sim_dt = %s" % dt)
+        b = run("electrode_resistance = 50\nelectrode_capacitance = 3\nbridge_balance = 50\ncap_neutralization = 2.5\n",
+                small, "sim_dt = %s" % dt)
+        errs.append(abs(b["P1"][400:440] - a["P1"][400:440]).max() if a and b else 99)
+    check("cc: the neutralised transient is the same at sim_dt 25 and 1 us (%.4f and %.4f mV)" % tuple(errs),
+          abs(errs[0] - errs[1]) < 0.005, errs)
+    # a pipette that only records (same_as) applies its junction potential on any path
+    v0 = "[cell V0]\nsame_as = P1\nliquid_junction_potential = 10\n[in V0]\nline = ai1\ngain_cc = 100\nunit_cc = mV\n"
+    r = run(v0, step)
+    e = abs(r["V0"] - r["P1"] - 10).max() if r else 1
+    check("a recording-only pipette with a 10 mV junction potential reads exactly 10 mV more (%.1e)" % e, e < 1e-9)
+
+    # the filter at the step it is given against the analogue 4-pole Bessel, 105/(s^4 + 10 s^3 + 45 s^2 + 105 s + 105)
+    sys.path.insert(0, os.path.join(ROOT, "neuron"))
+    import lcg2_neuron as L
+    lo, hi = 1.0, 3.0
+    for _ in range(80):
+        m = (lo + hi) / 2
+        lo, hi = (m, hi) if abs(105 / ((1j * m) ** 4 + 10 * (1j * m) ** 3 + 45 * (1j * m) ** 2 + 105j * m + 105)) > 2 ** -0.5 else (lo, m)
+
+    def analog(f, fc):
+        s = 1j * lo * f / fc
+        return 105 / (s ** 4 + 10 * s ** 3 + 45 * s ** 2 + 105 * s + 105)
+    for fc in (2.0, 10.0):
+        dt = min(0.025, L.Bessel4.MAX_FC_DT / fc)
+        fl = L.Bessel4(fc)
+        fl.set_dt(dt)
+
+        def digital(f):
+            z, H = cmath.exp(2j * math.pi * f * dt), 1
+            for b0, b1, a1, a2 in [x[:4] for x in fl.sec]:
+                H *= (b0 + b1 / z + b0 / z ** 2) / (1 + a1 / z + a2 / z ** 2)
+            return H
+        worst = max(abs(abs(digital(k * fc / 50)) / abs(analog(k * fc / 50, fc)) - 1) for k in range(1, 101))
+        check("bandwidth: %g kHz at the step used (%g us) is within 0.3%% of the analogue Bessel up to twice the corner "
+              "(%.3f%%; gain %.4f at 2 fc, analogue %.4f)" % (fc, dt * 1000, 100 * worst, abs(digital(2 * fc)), abs(analog(2 * fc, fc))),
+              worst < 0.003)
+    # the noise passes the filter: rms = sd * sqrt(2 * ENBW * T), whatever sim_dt
+    fs = np.linspace(0, 400.0, 400001)
+    enbw = float(np.sum(abs(analog(fs, 2.0)) ** 2) * (fs[1] - fs[0]))
+    want = 0.3 * math.sqrt(2 * enbw * 0.05)
+    quiet = "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA {\n 2000ms dc(0)\n}\n"
+    got = []
+    for dt in ("25us", "10us"):
+        a = run(passive + "recording_noise = 0.3\namplifier_bandwidth = 2\n", quiet, "sim_dt = %s\nsim_v_init = -80" % dt)
+        got.append(float((a["P1"][200:] + 80).std()) if a else 0)
+    check("noise: 0.3 mV rms through a 2 kHz filter is %.4f mV rms, as sd*sqrt(2*ENBW*T) = %.4f (sim_dt 25 and 10 us)"
+          % (got[0], want), all(abs(g - want) < 0.05 * want for g in got), got)
+    a = run(passive + "recording_noise = 0.3\n", quiet, "sim_v_init = -80")
+    check("noise: without the filter it is 0.3 mV rms per sample", a is not None and abs((a["P1"] + 80).std() - 0.3) < 0.01)
+
+    # Rs compensation with a lag, on a passive cell, against the exact solution of the linear circuit
+    vstep = "sg 2 stimulus\nrate 100kHz\nchannel P1 unit=mV {\n 5ms dc(-80)\n 5ms dc(-70)\n}\n"
+    t = run(passive + "electrode_resistance = 10\nrs_compensation = 90\nrs_lag = 20us\n", vstep, "sim_v_init = -80", ["-m", "vc"])
+    cm = math.pi * 20 * 20 * 0.01                                  # pF: the 20 um hh_soma, 1 uF/cm2
+    rm = 1.0 / (0.0003 * math.pi * 20 * 20 * 1e-8) * 1e-6          # MOhm: gl = 0.0003 S/cm2
+    rs, al, lag, el, vc = 10.0, 0.9, 0.020, -80.0, -70.0
+    A = np.array([[(-1 / rs - 1 / rm) / cm * 1000, 1 / rs / cm * 1000], [-al / lag, (al - 1) / lag]])
+    bv = np.array([(vc / rs + el / rm) / cm * 1000, al * vc / lag])
+    xs = np.linalg.solve(A, -bv)
+    lam, V = np.linalg.eig(A)
+    c = np.linalg.solve(V, np.array([-80.0, 0.0]) - xs)
+    X = np.real(np.array([xs + V @ (c * np.exp(lam * k * 0.01)) for k in range(1, 501)]))
+    exact = (vc + X[:, 1] - X[:, 0]) / rs * 1000
+    e = abs(t["P1"][500:1000] - exact).max() if t else 1e9
+    check("vc: 90%% compensation with a 20 us lag rings as the exact solution of the circuit does (within %.1f pA of a "
+          "%.0f pA peak; the rest is NEURON's own first-order step)" % (e, abs(exact).max()), e < 0.015 * abs(exact).max())
+    # with no lag the compensation is ideal: the clamp is (1 - alpha) * Rs, here 1 MOhm, no ringing
+    t0 = run(passive + "electrode_resistance = 10\nrs_compensation = 90\nrs_lag = 0\n", vstep, "sim_v_init = -80", ["-m", "vc"])
+    t1 = run(passive + "electrode_resistance = 1\n", vstep, "sim_v_init = -80", ["-m", "vc"])
+    e = abs(t0["P1"] - t1["P1"]).max() if t0 and t1 else 1
+    check("vc: rs_lag = 0 is ideal compensation: 90%% of 10 MOhm is a 1 MOhm clamp exactly (%.1e pA)" % e, e < 1e-6)
+
+    # d_lambda counts with the Ra and cm the biophysics file sets
+    w = newdir(tmp, "phys_dlambda")
+    shutil.copy(EX("student_kit/tiny.swc"), w)
+    write(os.path.join(w, "bio.py"), "def biophysics(cell):\n    for sec in cell.all:\n        sec.Ra, sec.cm = 300.0, 2.0\n"
+          "        sec.insert('pas')\n")
+    write(os.path.join(w, "c.ini"), "[cell P1]\nmorphology = tiny.swc\nbiophysics = bio.py\n")
+    out = go([PY, "-I", os.path.join(ROOT, "neuron", "lcg2_neuron.py"), "--check", "c.ini"], w).stdout
+    m = re.search(r"(\d+) section\(s\),\s+(\d+) segment\(s\)", out)
+    check("d_lambda counts segments with the final Ra = 300 and cm = 2 (13 segments, not 7)", m is not None and m.group(2) == "13", out)
 
 
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
         for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
-                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_kill_adapter, test_ctrl_c):
+                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

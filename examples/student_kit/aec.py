@@ -64,7 +64,8 @@ def main():
     k = full_kernel(i, v, n)
     ke, km, tau = electrode_kernel(k, rate)
     vc = compensate(i, v, ke)
-    print("estimated membrane time constant: %.2f ms" % (tau * 1e3))
+    # the tail is the membrane as seen through the pipette: the pipette capacitance loads the cell and lengthens it
+    print("time constant of the slow (membrane) tail of the kernel: %.2f ms" % (tau * 1e3))
     print("electrode kernel: peak %.3f mV/pA at %.2f ms; the electrode contributes %.2f mV rms to the recording" % (
         ke.max(), ke.argmax() / rate * 1e3, np.std(v - vc)))
     _, ideal, _ = load(sys.argv[1], "V0")

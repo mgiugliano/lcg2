@@ -383,13 +383,18 @@ Added at the owner's request ("recording noise, electrode resistance and capacit
 electrode compensation can be applied"). On the NEURON backend, per `[cell]`:
 
 - **Current clamp:** `(Ce - Cn) dVn/dt = Icmd - (Vn - Vm)/Re`, the cell receives `(Vn - Vm)/Re`, the amplifier reports
-  `Vn - Rb Icmd` plus noise. Backward-Euler update of the electrode node per NEURON step, coupled to the cell with a one-step lag;
-  refused when `Re * C(membrane under the electrode) < sim_dt` (it would be unstable), `Cn >= Ce`, or a negative value.
-- **Voltage clamp:** `SEClamp.rs = Rs` (`electrode_resistance`, else `series_resistance`); `rs_compensation` adds `alpha Rs I` to the
-  command (alpha below 1, one-step lag); the pipette capacitance `Cp` draws `Cp dVcmd/dt` over the sample in which the command changes
+  `Vn - Rb Icmd` plus noise. The node is solved exactly over each NEURON step (since 2026-11-18): the cell receives the mean of `Iin`
+  over the step with Vm held, and the node at the end of the step is found with Vm linear over it, so the reading has no lag and
+  does not depend on the step; the node starts at rest on the initialised cell. Refused when `Re * C(membrane under the electrode)
+  < sim_dt` (the coupling to the cell is explicit and would be unstable), `Cn >= Ce`, or a negative value.
+- **Voltage clamp:** `SEClamp.rs = Rs` (`electrode_resistance`, else `series_resistance`); `rs_compensation` adds `Vc` to the command,
+  `rs_lag dVc/dt = alpha Rs I - Vc` (alpha below 1; `rs_lag` default 10 us), solved exactly over each step with I extrapolated
+  linearly; with `rs_lag = 0` the compensation is ideal, `SEClamp.rs = (1 - alpha) Rs`. Pauses between trials run at `sim_dt` with
+  the ideal compensation (same steady state). The pipette capacitance `Cp` draws `Cp dVcmd/dt` over the sample in which the command changes
   and `cp_compensation` subtracts `Cpc dVcmd/dt`.
 - **Noise:** `recording_noise` rms, white, Gaussian, on every recorded value of the pipette, in the channel's unit; `noise_seed`;
-  Python's `random.Random`, so reproducible, the stream continuing across trials.
+  Python's `random.Random`, so reproducible, the stream continuing across trials. With `amplifier_bandwidth` it is drawn at every
+  NEURON step with `sd * sqrt(T/dt)` (the same density) and passes the filter.
 - **`same_as`:** a second electrode on an existing cell (written earlier), with only `electrode` and the electrode keys of its own.
 - **Offline AEC:** `examples/student_kit/aec.py`: deconvolution kernel, exponential tail fit, subtraction (Brette et al. 2008).
 - The default is an ideal electrode, and with no electrode keys the code path and the results are those of 0.1 (tested to 1e-9 mV).
@@ -404,13 +409,18 @@ the AEC as an offline script, not run inside LCG2; `electrode_resistance` replac
   `Rseal * C < sim_dt`); needs an `[out]`.
 - **Liquid junction potential:** `liquid_junction_potential` (mV): the recording reads `Vm + LJP`; in voltage clamp the cell sits at
   `command - LJP`. Not corrected automatically.
-- **Bandwidth:** `amplifier_bandwidth` (kHz): a 4-pole Bessel low-pass on every recorded value, run at the NEURON step (two second-order
-  sections, bilinear transform pre-warped to each section's corner); gain 0.708 at the corner and 0.20 at twice it; accurate within about
-  1 % while `corner * sim_dt <= 0.1`, refused above that.
+- **Bandwidth:** `amplifier_bandwidth` (kHz, at most 100): a 4-pole Bessel low-pass on every recorded value and its noise, run at the
+  NEURON step (two second-order sections, bilinear transform pre-warped to each section's corner). The error of the bilinear transform
+  grows as `(corner * step)^2` (17 % at twice the corner when it is 0.1), so since 2026-11-18 the step within trials is made at most
+  `0.0125 / corner`: within 0.25 % of the analogue filter (gain 0.7071 at the corner, 0.2137 at twice it) from 0 to twice the corner.
+- **The step:** within trials, `min(sim_dt, 0.0125/corner, rs_lag/20)` over the pipettes, logged in `neuron.log` and shown by `-n`.
 **Vetoable:** the seal leak reversing at 0 mV and acting on the cell interior in both modes; the junction potential as a constant that is
-never corrected for you; Bessel (not Butterworth) at the pole count of common amplifiers; the filter on the recorded quantity only.
+never corrected for you; Bessel (not Butterworth) at the pole count of common amplifiers; the filter on the recorded quantity only;
+(2026-11-18) the noise before the filter; the step made smaller automatically rather than a refusal; pauses at `sim_dt` with an
+ideal compensation. **Decided by the owner (2026-11-19):** the noise before the filter, a more accurate filter, a realistic (lagged)
+Rs compensation, and `rs_lag = 10us` by default (no published typical value was found; the LAG knob of real amplifiers is adjustable).
 
-**Not modelled:** whole-cell capacitance compensation (Cm), a seal that changes in time, a drifting junction potential, filtering of
+**Not modelled:** whole-cell capacitance compensation (Cm), Rs prediction (supercharging), a seal that changes in time, a drifting junction potential, filtering of
 the command, pipette capacitance dependence on the immersion depth.
 
 ## 5. Hardware facts used (USB-6343 datasheet)

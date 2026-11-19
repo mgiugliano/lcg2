@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+Fixes from the audit of 2026-11-18, the pipette and amplifier model of the NEURON backend. Results without electrode keys are unchanged.
+
+- **Fixed: a resistive electrode read one step late.** With `electrode_resistance` and no `electrode_capacitance` the recording used the
+  cell's potential from the start of the step; a balanced bridge differed from the ideal recording by up to 7 mV during a step. The
+  electrode node is now solved exactly over each step: the balanced recording equals the ideal one to 1e-14 mV, and the neutralised
+  transient of tutorial J1 no longer depends on `sim_dt` (0.19 mV, not 0.32 mV).
+- **Fixed: the electrode started at −65 mV** whatever `sim_v_init` and the `init` hooks set; it now starts at rest on the cell.
+- **Fixed: a pipette that only records** (an `[in]` without `[out]`, such as a `same_as` electrode) ignored its
+  `liquid_junction_potential` and `amplifier_bandwidth` unless another pipette had an electrode model.
+- **Fixed: `d_lambda` counted segments before the biophysics file set `Ra` and `cm`**, so a morphology could get too few segments.
+- **Changed: the amplifier filter is now accurate to 0.25 %.** The bilinear transform was 17 % off at twice the corner at the limit
+  allowed (corner × `sim_dt` = 0.1), and the documented gain at twice the corner (0.20) was wrong: the analogue Bessel has 0.2137.
+  Within trials the step is now made small enough automatically (corner × step ≤ 0.0125) instead of refusing a corner; above 100 kHz is
+  refused.
+- **Changed: the noise passes the filter**, as on a rig: with `amplifier_bandwidth` the noise is drawn at every step with the density
+  that gives `recording_noise` rms without the filter, and filtered (0.3 mV rms becomes 0.137 mV through 2 kHz at 20 kHz). Without a
+  filter nothing changes.
+- **Changed: series-resistance compensation is realistic**: it acts through a low-pass, the new key `rs_lag` (default 10 µs; 0 gives an
+  ideal compensation, `(1 − α) Rs`), and rings when it is large, as the circuit does (tested against its exact solution). Before, its
+  only lag was one NEURON step, so the ringing depended on `sim_dt`. Pauses between trials run at `sim_dt`.
+- **Changed:** `vc_steps.sg` holds −70 mV between trials (it held 0 mV); `rig_electrode.ini` has a profile `vc_cp`; `aec.py` calls
+  its time constant that of the kernel's slow tail (with a pipette capacitance it is longer than the membrane's); tutorials J and K
+  and their figures are from new runs, and their explanations corrected; 13 new checks against independent references.
+
 ## 0.3.0 (2026-11-18)
 
 - **Added: seal resistance, liquid junction potential and amplifier bandwidth** on the NEURON backend (`[cell]` keys `seal_resistance`,

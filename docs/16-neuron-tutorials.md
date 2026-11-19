@@ -140,7 +140,7 @@ Where is it now (it fires first at 100 pA)? Change `gnabar` (the sodium conducta
 **Goal:** see the currents behind the spikes.
 
 `-m vc` switches the same rig to voltage clamp: the command is now in **mV** (a `SEClamp`) and the recording in
-**pA**. `vc_steps.sg` holds at −70 mV and steps to −60 … +40 mV for 30 ms:
+**pA**. `vc_steps.sg` holds at −70 mV (between the trials too: `rest=-70` in the stimulus) and steps to −60 … +40 mV for 30 ms:
 
 ```console
 $ ./lcg2 -m vc -c examples/student_kit/rig.ini examples/student_kit/vc_steps.sg
@@ -152,11 +152,11 @@ $ ./lcg2 -m vc -c examples/student_kit/rig.ini examples/student_kit/vc_steps.sg
 $ python3 examples/student_kit/characterise.py iv FILE.h5
 step             peak inward pA end of step pA
 vm=-60mV                    -71            106
-vm=-40mV                 -12377           2157
-vm=-20mV                 -18450           7799
-vm=0mV                   -15646          14954
-vm=20mV                   -9741          22370
-vm=40mV                   -2471          29744
+vm=-40mV                 -12430           2157
+vm=-20mV                 -18494           7799
+vm=0mV                   -15678          14954
+vm=20mV                   -9761          22370
+vm=40mV                   -2478          29744
 ```
 
 **Reading it.** After the step there is a fast **inward** (negative) current, the sodium current, largest near
@@ -490,10 +490,11 @@ the electrode, the steady level is exactly the truth (the difference is below a 
 you adjust the knob until the sudden jump at the beginning and the end of a step disappears.
 **But** look at the right-hand panel, the first 5 ms: the jump is removed immediately, while the electrode node follows only
 slowly, charging the pipette capacitance through the resistance, so the bridge-balanced trace *overshoots* at the onset
-(0.81 mV off the truth, worse than raw, 0.55 mV, in the first two milliseconds).
+(0.79 mV off the truth, worse than raw, 0.59 mV, in the first two milliseconds).
 **Capacitance neutralisation** is the second knob: the amplifier feeds back positive current that cancels most of the
-pipette capacitance (`cap_neutralization = 2.5` of the 3 pF). The onset error falls to 0.32 mV. Push it to 3 pF or more and
-the amplifier would oscillate, as a real one does; LCG2 refuses such a setting.
+pipette capacitance (`cap_neutralization = 2.5` of the 3 pF). The onset error falls to 0.19 mV. Push it to 3 pF or more and
+the amplifier would oscillate, as a real one does; LCG2 refuses such a setting. (These numbers do not depend on `sim_dt`: the
+electrode is solved exactly over each step.)
 
 ### J2. Noise
 
@@ -505,7 +506,8 @@ $ ./lcg2 -P noisy -c examples/student_kit/rig_electrode.ini examples/student_kit
 
 The profile `noisy` asks for 0.3 mV rms and the recording has 0.305 mV. The noise is the same every time you repeat the run
 (`noise_seed`; give another to get another sample), and it goes on from one trial to the next, so trials differ. Measure the
-resting noise in the first 100 ms and the signal-to-noise of a small step: how large a PSP can you see?
+resting noise in the first 100 ms and the signal-to-noise of a small step: how large a PSP can you see? The level is the rms you
+record without a filter; an amplifier filter (K3) reduces it, as on a rig.
 
 ### J3. Voltage clamp: series resistance and the pipette capacitance
 
@@ -522,14 +524,18 @@ $ ./lcg2 -m vc -P vc_comp -c examples/student_kit/rig_electrode.ini examples/stu
 ![the electrode in voltage clamp](figures/fig-nrn-electrode-vc.svg)
 
 **Raw.** The large sodium current (15 nA at the peak in the ideal case) would drop 150 mV across 10 MΩ, twice the 70 mV step: the
-cell is not clamped, so the recorded peak is only −3.8 nA instead of −15.6 nA, and the steady current is 3.7 nA instead of
+cell is not clamped, so the recorded peak is only −3.8 nA instead of −15.7 nA, and the steady current is 3.7 nA instead of
 14.9 nA. This is the textbook reason for keeping Rs small and for reading the currents of large cells with suspicion. The
-first sample also holds the capacitive transient of the **pipette** (5 pF × 70 mV in one sample), which is not the cell's:
-11.9 nA against 8.1 nA.
+first sample holds two transients: the cell's capacitance charging through 10 MΩ, and the **pipette's**, 5 pF × 70 mV in one
+50 µs sample = 7.0 nA, which is not the cell's. The profile `vc_cp` compensates only the pipette: its first sample is 4.85 nA
+instead of 11.85 nA, exactly 7.0 nA less, and the rest of the trace is unchanged.
 **Compensated.** `rs_compensation = 70` feeds back 70 % of `Rs × I`: the peak recovers to −9.6 nA and the steady current to
-8.7 nA, and `cp_compensation = 5` subtracts the pipette transient (first sample 8.3 nA, back to the cell's own). Compensation
-cannot be 100 %: positive feedback of that size is unstable, so LCG2 refuses it; and the usual rule applies: a
-compensation that is too large rings.
+8.7 nA. As on a real amplifier the feedback goes through a low-pass, `rs_lag` (the LAG knob; 10 µs unless you set it), so it
+is not instantaneous. Compensation cannot be 100 %: LCG2 refuses it. And the usual rule applies: a large compensation rings.
+**Try** `rs_compensation = 90`: the capacitive current after the step swings above and below its final value for half a
+millisecond; lengthen `rs_lag` to 50us and it swings more slowly. This ringing is the circuit's (a test compares it with the
+exact solution), not the simulation's: to compute it the step is made 20 times smaller than the lag (0.5 µs here, inside trials
+only; `neuron.log` says so). `rs_lag = 0` is an ideal compensation, which never rings.
 
 ### J4. Active electrode compensation, offline
 
@@ -548,21 +554,23 @@ $ ./lcg2 -s 5 -c examples/student_kit/rig_aec.ini examples/student_kit/aec_noise
 
 ```console
 $ python3 examples/student_kit/aec.py FILE.h5
-estimated membrane time constant: 4.17 ms
-electrode kernel: peak 0.010 mV/pA at 0.00 ms; the electrode contributes 2.07 mV rms to the recording
-error against the true membrane potential (V0): 2.661 mV rms before, 0.606 mV rms after (4x better)
+time constant of the slow (membrane) tail of the kernel: 4.10 ms
+electrode kernel: peak 0.011 mV/pA at 0.00 ms; the electrode contributes 2.19 mV rms to the recording
+error against the true membrane potential (V0): 2.805 mV rms before, 0.631 mV rms after (4x better)
 ```
 
 ![active electrode compensation](figures/fig-nrn-aec.svg)
 
-The recording through the electrode (red) differs from the true potential (grey) by 2.7 mV rms; after AEC (green) by 0.6 mV rms:
-four times closer. The right panel shows the three kernels: the full one, the membrane's exponential tail (τ = 4.2 ms), and the
-electrode's, which lasts under a millisecond. Not perfect (0.6 mV is left), because the cell does not receive exactly the
-command through a capacitive electrode, and the kernel is an estimate from noise. **Try:** `-P ideal` has no electrode (AEC
-then finds nothing to remove); change `electrode_resistance`, give the cell `gnabar = 0.12` again and see why AEC is described
-for subthreshold recordings (a spiking cell is not linear).
+The recording through the electrode (red) differs from the true potential (grey) by 2.8 mV rms; after AEC (green) by 0.6 mV rms:
+four times closer. The right panel shows the three kernels: the full one, the slow exponential tail (τ = 4.1 ms), and the
+electrode's, which lasts under a millisecond. The tail is not the membrane time constant of this cell, which is cm/gl = 3.33 ms
+(`-P ideal` finds that): the 3 pF of the pipette hang on the 12.6 pF of the cell and slow it to about (12.6 + 3)/12.6 × 3.33 = 4.1 ms.
+Not perfect (0.6 mV is left), because the cell does not receive exactly the command through a capacitive electrode, and the kernel
+is an estimate from noise. **Try:** `-P ideal` has no electrode (AEC then finds nothing to remove); change `electrode_resistance`;
+give the cell `gnabar = 0.12` again: AEC needs the *electrode* to be linear, not the cell (Brette et al. 2008 used it on spiking
+cells), but the kernel must be learned from a stretch of subthreshold noise, where the cell is linear too.
 
-**Where this stops.** LCG2 simulates a lumped pipette and a first-order amplifier; there is no whole-cell capacitance compensation, and
+**Where this stops.** LCG2 simulates a lumped pipette and an amplifier with the settings above; there is no whole-cell capacitance compensation, and
 the compensations are settings, not an interactive knob during a run. The seal, the junction potential and the bandwidth are tutorial K. The list is in [14](14-neuron-models.md#limits-what-this-does-not-do).
 
 ---
@@ -598,7 +606,7 @@ $ ./lcg2 -m vc -P vc_raw -c examples/student_kit/rig_electrode.ini examples/stud
 $ ./lcg2 -m vc -P vc_seal -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
 ```
 
-At −70 mV the 500 MΩ seal of `vc_seal` adds about −70 mV / 500 MΩ = −140 pA to the holding current (−122 pA in the recording): this is
+At −70 mV the 500 MΩ seal of `vc_seal` adds about −70 mV / 500 MΩ = −140 pA to the holding current (−126 pA in the recording, against `vc_raw`): this is
 the usual reason to discard a cell whose holding current drifts. A seal too leaky for the time step is refused with the smallest
 value that is accepted.
 
@@ -625,14 +633,17 @@ An amplifier filters its output (a 4-pole Bessel low-pass, typically 2 to 10 kHz
 $ ./lcg2 -m vc -P vc_bandwidth -c examples/student_kit/rig_electrode.ini examples/student_kit/vc_steps.sg
 ```
 
-In the right-hand panel of the figure the unfiltered spike of 11.7 nA in the first sample is cut to 0.1 nA, and the sodium current
-that follows (a few milliseconds) passes almost unchanged: the filter keeps what is slow and removes what is fast. The choice of corner
-is the usual compromise: low enough to remove noise, high enough not to distort the signal you care about (a spike at 1 ms needs
-several kHz). The filter is a real 4-pole Bessel (gain 0.71 at the corner, 0.20 at twice the corner, to within 1 %), and it is
-accurate while the corner times `sim_dt` is at most 0.1: for 10 kHz set `sim_dt = 10us` in `[rig]`, and the program says so if you forget.
+In the right-hand panel of the figure the unfiltered spike of 11.85 nA in the first sample becomes a smaller, later and wider bump
+(0.16 nA in the first sample, a peak of 4.76 nA three samples later): the filter delays and spreads it, and keeps its charge (the
+two traces carry the same charge to 0.02 %). The sodium current that follows (a few milliseconds) passes almost unchanged: the
+filter keeps what is slow and smooths what is fast. The choice of corner is the usual compromise: low enough to remove noise, high
+enough not to distort the signal you care about (a spike at 1 ms needs several kHz). The filter is a real 4-pole Bessel (gain
+0.7071 at the corner, 0.2137 at twice the corner, within 0.25 % of the analogue one); to compute it that well the step is made
+small enough within trials (6.25 µs for 2 kHz), whatever `sim_dt` says.
 
-**Try.** Put `recording_noise` and `amplifier_bandwidth` together and see how the filter reduces the noise (white noise sampled at
-20 kHz loses power in proportion to the bandwidth); give the electrode a resistance and measure how the bridge-balanced onset of tutorial J
+**Try.** Put `recording_noise` and `amplifier_bandwidth` together: the noise passes the filter, as on a rig, so 0.3 mV rms at 20 kHz
+becomes 0.137 mV rms through 2 kHz (white noise keeps a share of its power equal to the filter's noise bandwidth, about 1.05 × the
+corner, over half the sampling rate); give the electrode a resistance and measure how the bridge-balanced onset of tutorial J
 changes with the filter; correct the potentials of a junction-offset recording by hand.
 
 ---
@@ -646,5 +657,5 @@ changes with the filter; correct the potentials of a junction-offset recording b
 * A spike clipped flat at the top of a recording is the input **range** at work (a warning says so): raise `range` of
   `[in P1]`, or the gain.
 
-The limits of the simulation (one electrode per cell, no electrode capacitance, no noise) are listed in
+The limits of the simulation (a lumped pipette, no whole-cell capacitance compensation, no dynamic clamp) are listed in
 [14](14-neuron-models.md#limits-what-this-does-not-do).

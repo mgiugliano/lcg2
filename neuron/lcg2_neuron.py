@@ -390,7 +390,7 @@ def locate(cell, text, what):
 
 ELECTRODE_KEYS = ("electrode_resistance", "electrode_capacitance", "recording_noise", "noise_seed", "bridge_balance",
                   "cap_neutralization", "rs_compensation", "cp_compensation", "seal_resistance",
-                  "liquid_junction_potential", "amplifier_bandwidth")
+                  "liquid_junction_potential", "amplifier_bandwidth", "rs_lag")
 CELL_KEYS = ("model", "template", "morphology", "biophysics", "init", "mechanisms", "electrode", "d_lambda",
              "series_resistance", "same_as") + ELECTRODE_KEYS
 
@@ -423,7 +423,6 @@ def build_cell(h, name, spec, base, loaded_mech):
         sections = list(obj.all)
         if bio in BUILTIN_BIOPHYSICS:
             builtin_biophysics(h, bio, obj, sections)
-        apply_d_lambda(h, sections, d_lambda)
     elif model == "hh_soma":
         obj = build_hh_soma(h, name, params)
     elif model == "ball_and_stick":
@@ -462,6 +461,8 @@ def build_cell(h, name, spec, base, loaded_mech):
         path = resolve(spec["biophysics"], base, what + " biophysics")
         files.append(path)
         run_hook(h, path, "biophysics", obj, sections, params, what, name)
+    if morph:                                       # after the biophysics: the rule needs the final Ra and cm
+        apply_d_lambda(h, sections, d_lambda)
     init = None
     if "init" in spec:
         init = resolve(spec["init"], base, what + " init")
@@ -507,20 +508,29 @@ def run_hook(h, path, hook, obj, sections, params, what, name):
 # Current clamp.  The pipette is a series resistance Re between the amplifier and the cell and a capacitance Ce
 # from the amplifier side to ground:
 #       (Ce - Cn) dVn/dt = Icmd - (Vn - Vm)/Re          Iin = (Vn - Vm)/Re  flows into the cell
-# (nA * ms / pF is 1000 mV, MOhm * pF is a microsecond: the factors of 1000 are in pre()).
+# (nA * ms / pF is 1000 mV, MOhm * pF is a microsecond: the factors of 1000 are in the code).
+# The node is solved exactly over each NEURON step (it is linear): pre() injects the mean of Iin over the step
+# with Vm held at its value at the start, post() takes Vm as linear over the step to find Vn at its end, so that
+# what is read is the end of the step (no lag) whatever the time constant Re*(Ce - Cn).
 # The amplifier reports Vn - Rb*Icmd (Rb is the bridge balance, Cn the capacitance neutralisation), plus noise.
 # With Re = Ce = Rb = Cn = 0 this is an ideal electrode and the cell sees Icmd exactly.
 #
 # Voltage clamp.  The clamp has a series resistance Rs (electrode_resistance, or series_resistance) between the
 # amplifier and the cell.  Series-resistance compensation is positive feedback: the amplifier adds
-# alpha*Rs*I to its command (alpha = rs_compensation/100).  The pipette capacitance Cp draws Cp*dVcmd/dt
+# alpha*Rs*I to its command (alpha = rs_compensation/100), through a low-pass of time constant rs_lag, as the
+# LAG control of a real amplifier does:  lag dVc/dt = alpha*Rs*I - Vc.  With rs_lag = 0 the compensation is
+# ideal: the clamp's series resistance becomes (1 - alpha)*Rs.  The pipette capacitance Cp draws Cp*dVcmd/dt
 # (spread over the sample in which the command changes) and the amplifier subtracts Cpc*dVcmd/dt
 # (cp_compensation).  The current is reported with noise.
 #
 # Seal.  A finite seal resistance is a leak from the cell's interior to the bath: a current -(Vm - 0)/Rseal into
 # the cell (an extra conductance with a reversal of 0 mV), in both modes.  Liquid junction potential.  The
 # recorded potential reads Vm + LJP, and the potential the cell really sits at is the command minus LJP.
-# Bandwidth.  Everything the amplifier reports passes a 4-pole Bessel low-pass (Bessel4) before the digitiser.
+# Bandwidth.  What the amplifier reports, its noise included, passes a 4-pole Bessel low-pass (Bessel4) before
+# the digitiser.
+#
+# The step.  The filter and the compensation loop are computed at the NEURON step, so the step is made as small
+# as they need (step_needed): sim_dt is the largest step, not always the one used.
 
 
 class Bessel4(object):
@@ -528,9 +538,12 @@ class Bessel4(object):
 
     Two second-order sections, each made digital with the bilinear transform at the NEURON step (pre-warped to
     its own corner, so that each section is exact there).  It runs at the step of the simulation, not at the
-    sampling rate, so that it behaves like the analogue filter that comes before the digitiser."""
-    POLES = ((-2.8962295, 0.8672341), (-2.1037705, 2.6574180))      # roots of s^4 + 10 s^3 + 45 s^2 + 105 s + 105
-    W3DB = 2.1139                                                    # their -3 dB frequency, rad per unit delay
+    sampling rate, so that it behaves like the analogue filter that comes before the digitiser.  The error of
+    the bilinear transform grows as (fc*dt)^2: within 0.25 percent of the analogue filter from 0 to twice the
+    corner when fc*dt <= MAX_FC_DT (17 percent at fc*dt = 0.1), so the step is made that small (step_needed)."""
+    POLES = ((-2.8962106, 0.8672341), (-2.1037894, 2.6574180))      # roots of s^4 + 10 s^3 + 45 s^2 + 105 s + 105
+    W3DB = 2.1139177                                                 # their -3 dB frequency, rad per unit delay
+    MAX_FC_DT = 0.0125
 
     def __init__(self, fc_khz):
         self.fc = fc_khz
@@ -599,15 +612,39 @@ def electrode_spec(name, spec):
              seed=int(g("noise_seed", "integer", None, 1)), rs=g("series_resistance", "MOhm", R, 1.0),
              seal=1000.0 * g("seal_resistance", "GOhm", {"GOhm": 1.0, "MOhm": 0.001}),            # kept in MOhm
              bw=g("amplifier_bandwidth", "kHz", {"kHz": 1.0, "Hz": 0.001}),
+             lag=g("rs_lag", "us", {"us": 0.001, "ms": 1.0}, "10us"),                                # kept in ms
              ljp=number(spec.get("liquid_junction_potential", 0.0), w + "liquid_junction_potential (mV)"))
     if e["cn"] > 0 and e["cn"] >= e["ce"]:
         raise Problem("%scap_neutralization (%g pF) must stay below electrode_capacitance (%g pF): at or above it the "
                       "amplifier would oscillate, as a real one does" % (w, e["cn"], e["ce"]))
     if e["rsc"] >= 100:
         raise Problem("%srs_compensation must be below 100 percent (it is %g): at 100 the loop is unstable" % (w, e["rsc"]))
+    if 0 < e["lag"] < 0.001:
+        raise Problem("%srs_lag must be 0 (ideal compensation) or at least 1 us (it is %g us)" % (w, e["lag"] * 1000.0))
+    if e["bw"] > 100:
+        raise Problem("%samplifier_bandwidth must be at most 100 kHz (it is %g kHz), the widest filter of a patch-clamp "
+                      "amplifier" % (w, e["bw"]))
     e["model"] = any(e[k] > 0 for k in ("re", "ce", "rb", "cn", "rsc", "cpc", "seal")) or e["ljp"] != 0 or e["bw"] > 0
     e["active"] = e["model"] or e["noise"] > 0
     return e
+
+
+LAG_STEPS = 20          # steps per rs_lag: the loop is then within ~1 percent of its limit dt -> 0 (tests/test_neuron.py)
+
+
+def o_dim(outs, name):
+    """What the [out NAME] drives ("current" or "voltage"), or None for a pipette that only records."""
+    return next((o["dim"] for o in outs if o["name"] == name), None)
+
+
+def step_needed(name, es, out_dim):
+    """The largest NEURON step (ms) at which this pipette is computed accurately, and why (inf, "" if any step)."""
+    best, why = float("inf"), ""
+    if es["bw"] > 0:
+        best, why = Bessel4.MAX_FC_DT / es["bw"], "[cell %s] amplifier_bandwidth %g kHz needs it" % (name, es["bw"])
+    if out_dim == "voltage" and es["rsc"] > 0 and es["lag"] > 0 and es["lag"] / LAG_STEPS < best:
+        best, why = es["lag"] / LAG_STEPS, "[cell %s] rs_lag %g us needs it" % (name, es["lag"] * 1000.0)
+    return best, why
 
 
 def make_seal(h, rec, es):
@@ -630,8 +667,14 @@ class CCElectrode(object):
         self.ljp, self.seal = es["ljp"], es["seal"]
         self.model = es["model"]
         self.leak = make_seal(h, rec, es)
+        self.tau = self.re * (self.ce - self.cn) * 1e-3 if self.re > 0 else 0.0      # MOhm*pF is a microsecond: ms
         self.icmd = 0.0
-        self.vn = rec["seg"].v
+        self.vn = self.vm0 = self.decay = 0.0
+        self.start()
+
+    def start(self):
+        """The node at rest on the cell as it is now (after finitialize and the init hooks)."""
+        self.vn = self.vref[0] + self.re * self.icmd
 
     def command(self, pa, T_ms=None):
         self.icmd = pa * 1e-3
@@ -640,21 +683,30 @@ class CCElectrode(object):
         if not self.model:
             self.clamp.amp = self.icmd
             return
-        vm = self.vref[0]
+        vm = self.vm0 = self.vref[0]
         if self.leak is not None:
             self.leak.amp = -vm / self.seal
-        if self.re <= 0:
-            self.vn, iin = vm, self.icmd
-        elif self.ce <= 0:
-            self.vn, iin = vm + self.re * self.icmd, self.icmd
-        else:
-            k = dt * 1000.0 / (self.ce - self.cn)          # nA*ms/pF is 1000 mV: k is in mV per nA
-            self.vn = (self.vn + k * (self.icmd + vm / self.re)) / (1.0 + k / self.re)
-            iin = (self.vn - vm) / self.re
+        iin = self.icmd
+        if self.tau > 0:
+            # with Vm held, Vn relaxes to Vm + Re*Icmd with the time constant tau: inject the mean of Iin
+            self.decay = math.exp(-dt / self.tau)
+            iin += (self.vn - vm - self.re * self.icmd) * (self.tau / dt) * (1.0 - self.decay) / self.re
         self.clamp.amp = iin
 
-    def post(self):
+    def coarse(self, on):
         pass
+
+    def post(self, dt):
+        if not self.model or self.re <= 0:
+            return
+        vm = self.vref[0]
+        if self.tau > 0:
+            # Vm linear over the step (slope s): Vn(t) = Vm(t) + Re*Icmd - tau*s + C*exp(-t/tau)
+            s = (vm - self.vm0) / dt
+            off = self.re * self.icmd - self.tau * s
+            self.vn = vm + off + (self.vn - self.vm0 - off) * self.decay
+        else:
+            self.vn = vm + self.re * self.icmd
 
     def read_v(self):
         if not self.model:
@@ -673,8 +725,10 @@ class VCElectrode(object):
         self.clamp = h.SEClamp(rec["seg"])
         self.clamp.dur1, self.clamp.dur2, self.clamp.dur3, self.clamp.amp1 = 1e9, 0, 0, 0
         self.rs = es["re"] if es["re"] > 0 else es["rs"]
-        self.clamp.rs = self.rs
         self.alpha = es["rsc"] / 100.0
+        self.lag = es["lag"] if self.alpha > 0 else 0.0
+        # ideal compensation (no lag) takes alpha of Rs away; a lagged one is a feedback loop, computed in pre()
+        self.clamp.rs = self.rs * (1.0 - self.alpha) if (self.alpha > 0 and self.lag <= 0) else self.rs
         self.cp, self.cpc = es["ce"], es["cpc"]
         self.ljp, self.seal = es["ljp"], es["seal"]
         self.model = es["model"]
@@ -682,6 +736,24 @@ class VCElectrode(object):
         self.vref = rec["seg"]._ref_v
         self.iref = self.clamp._ref_i
         self.vcmd, self.vprev, self.dv = 0.0, None, 0.0
+        self.vc = 0.0                                     # the compensation voltage, mV
+        self.uprev, self.paused = None, False
+
+    def start(self):
+        self.vc, self.uprev = 0.0, None
+
+    def coarse(self, on):
+        """Pauses run at sim_dt, too coarse for a lagged loop: the compensation is ideal meanwhile.  Both have the
+        same steady state, so at the end of the pause the loop takes over where the ideal one stands."""
+        if self.lag <= 0 or not self.model:
+            return
+        self.paused = on
+        if on:
+            self.clamp.rs, self.vc = self.rs * (1.0 - self.alpha), 0.0
+        else:
+            # the same current I flows through the full Rs once the amplifier adds Vc = alpha*Rs*I
+            self.vc = self.alpha * self.rs * self.iref[0]
+            self.clamp.rs, self.uprev = self.rs, None
 
     def command(self, mv, T_ms=None):
         self.dv = 0.0 if (self.vprev is None or not T_ms) else (mv - self.vprev) / T_ms
@@ -694,9 +766,17 @@ class VCElectrode(object):
             return
         if self.leak is not None:
             self.leak.amp = -self.vref[0] / self.seal
-        self.clamp.amp1 = self.vcmd - self.ljp + self.alpha * self.rs * self.iref[0]
+        if self.lag > 0 and not self.paused:
+            # lag dVc/dt = alpha*Rs*I - Vc, solved exactly over the step with I extrapolated linearly from the last
+            # two steps (the loop then converges as dt^2, not as dt)
+            u0 = self.alpha * self.rs * self.iref[0]
+            s = (u0 - self.uprev) / dt if self.uprev is not None else 0.0
+            self.uprev = u0
+            e = math.exp(-dt / self.lag)
+            self.vc = u0 + s * dt - self.lag * s + (self.vc - u0 + self.lag * s) * e
+        self.clamp.amp1 = self.vcmd - self.ljp + self.vc
 
-    def post(self):
+    def post(self, dt):
         pass
 
     def read_v(self):
@@ -752,6 +832,18 @@ class Network(object):
             rec["es"] = electrode_spec(name, rec["spec"])
             if rec["es"]["noise"] > 0:
                 self.noise[name] = Noise(rec["es"]["noise"], rec["es"]["seed"] + 7919 * len(self.noise))
+        # the step: sim_dt, or less where a pipette needs it
+        self.dt_max, self.dt_why = opts["dt_ms"], ""
+        for name in [o["name"] for o in outs] + [i["name"] for i in ins]:
+            rec = self.cells.get(name)
+            if rec is not None:
+                dt, why = step_needed(name, rec["es"], o_dim(outs, name))
+                if dt < self.dt_max:
+                    self.dt_max, self.dt_why = dt, why
+        if self.dt_why:
+            log("the step is %g us instead of sim_dt %g us: %s" % (self.dt_max * 1000.0, opts["dt_ms"] * 1000.0, self.dt_why))
+        for rec in self.cells.values():
+            rec["es"]["step_ms"] = self.dt_max if self.dt_why else 0.0
         for o in outs:
             rec = self.cells.get(o["name"])
             if rec is None:
@@ -794,25 +886,24 @@ class Network(object):
                     raise Problem("[in %s] records current but there is no [out %s] to inject it" % (i["name"], i["name"]))
                 self.in_e.append(("i", el.clamp._ref_amp if el.kind == "i" else el.clamp._ref_i))
                 read = el.read_i
-            filt = None
-            if es["bw"] > 0:
-                if es["bw"] * opts["dt_ms"] > 0.1:                  # beyond this the digital filter is more than ~2 percent off
-                    raise Problem("[cell %s] amplifier_bandwidth %g kHz is too high for sim_dt %g ms (the filter runs at the NEURON "
-                                  "step and needs a corner below %.1f kHz to be accurate): lower it, or set sim_dt = %.0fus or less in [rig]"
-                                  % (i["name"], es["bw"], opts["dt_ms"], 0.1 / opts["dt_ms"], 100.0 / es["bw"]))
-                filt = Bessel4(es["bw"])
+            filt = Bessel4(es["bw"]) if es["bw"] > 0 else None            # the step was made small enough for it
             self.in_read.append((read, noise, filt))
-        # the fast path (plain clamps, nothing else) is used unless a pipette has something to model
-        self.model = any(el.model for el in self.out_el) or bool(self.noise)
-        self.opts = opts
+        # the fast path (plain clamps, nothing else) is used unless a pipette has something to model (a pipette that
+        # only records counts too: its junction potential and filter are applied on the slow path)
+        self.model = (any(el.model for el in self.out_el) or bool(self.noise)
+                      or any(self.cells[i["name"]]["es"]["model"] for i in ins))
+        self.sim_dt = opts["dt_ms"]                     # the largest step, used in pauses (the checks above are made for it)
+        self.opts = dict(opts, dt_ms=self.dt_max)       # the step within trials
         self.nsub = 1
-        h.dt = opts["dt_ms"]
+        h.dt = self.dt_max
         h.v_init = opts["v_init"]
         h.finitialize(opts["v_init"])
         for rec in self.cells.values():
             if rec["init"]:
                 run_hook(h, rec["init"], "initialize", rec["obj"], rec["sections"], rec["params"], "[cell %s]" % rec["name"], rec["name"])
         h.fcurrent()
+        for el in self.out_el:                            # the pipettes start at rest on the cell as initialised
+            el.start()
         self.advance_ms(opts["settle_ms"], [0.0] * len(self.out_e))
         self.filters_to_rest()
 
@@ -875,11 +966,24 @@ class Network(object):
         target = h.t + dur_ms
         n = max(1, int(round(dur_ms / h.dt)))
         if self.model:
-            els, dt, fadvance = self.out_el, h.dt, h.fadvance
+            els, fadvance, keep = self.out_el, h.fadvance, h.dt
+            if self.dt_why:
+                # the step was made small for what is recorded; nothing is recorded in a pause: back to sim_dt
+                n = max(1, int(math.ceil(dur_ms / self.sim_dt - 1e-9)))
+                h.dt = dur_ms / n
+                for el in els:
+                    el.coarse(True)
+            dt = h.dt
             for _ in range(n):
                 for el in els:
                     el.pre(dt)
                 fadvance()
+                for el in els:
+                    el.post(dt)
+            if self.dt_why:
+                for el in els:
+                    el.coarse(False)
+                h.dt = keep
             self.filters_to_rest()
         else:
             for _ in range(n):
@@ -905,7 +1009,10 @@ class Network(object):
         res = [array.array("d", bytes(8 * count)) for _ in ins]
         if self.model:
             els, reads, dt, T = self.out_el, self.in_read, h.dt, self.period_ms
-            filts = [(f, rd) for rd, _n, f in reads if f]
+            # A filtered input gets its noise before the filter, drawn at every step: white noise of the same
+            # density as the unfiltered one (sd per step = sd per sample * sqrt(T/dt), and T/dt is nsub).
+            boost = math.sqrt(nsub)
+            filts = [(f, rd, n, boost) for rd, n, f in reads if f]
             for i in range(count):
                 for j, el in enumerate(els):
                     el.command(cmd[j][i], T)
@@ -913,10 +1020,12 @@ class Network(object):
                     for el in els:
                         el.pre(dt)
                     fadvance()
-                    for f, rd in filts:
-                        f.step(rd())
+                    for el in els:
+                        el.post(dt)
+                    for f, rd, n, b in filts:
+                        f.step(rd() + n() * b if n else rd())
                 for k, (read, noise, filt) in enumerate(reads):
-                    res[k][i] = (filt.last if filt else read()) + (noise() if noise else 0.0)
+                    res[k][i] = filt.last if filt else read() + (noise() if noise else 0.0)
             return res
         icl = [(c, cmd[j]) for j, (k, c) in enumerate(outs) if k == "i"]
         vcl = [(c, cmd[j]) for j, (k, c) in enumerate(outs) if k == "v"]
@@ -942,8 +1051,12 @@ def electrode_note(es):
                              ("seal", "seal", "MOhm"), ("bw", "bandwidth", "kHz")):
         if es[key] > 0:
             bits.append("%s %g %s" % (label, es[key], unit))
+            if key == "rsc":
+                bits.append("lag %g us" % (es["lag"] * 1000.0) if es["lag"] > 0 else "no lag")
     if es["ljp"] != 0:
         bits.append("LJP %g mV" % es["ljp"])
+    if es.get("step_ms"):
+        bits.append("step %g us" % (es["step_ms"] * 1000.0))
     return " [" + ", ".join(bits) + "]" if bits else ""
 
 
@@ -1006,7 +1119,8 @@ def serve():
                           dict(dt_ms=msg["dt_ms"], celsius=msg["celsius"], v_init=msg["v_init"], settle_ms=msg["settle_ms"]))
             cells, syns = describe(net)
             pipe.reply({"ok": True, "protocol": PROTOCOL, "neuron": h.nrnversion(0), "python": sys.version.split()[0],
-                        "cells": cells, "synapses": syns, "files": net.files, "dt_ms": msg["dt_ms"], "celsius": msg["celsius"]})
+                        "cells": cells, "synapses": syns, "files": net.files, "dt_ms": msg["dt_ms"], "step_ms": net.dt_max,
+                        "celsius": msg["celsius"]})
         except Problem as e:
             pipe.reply({"ok": False, "error": str(e)})
             return 1

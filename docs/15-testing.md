@@ -21,9 +21,9 @@ that the repository was left clean.
 | stimulus | `tests/test_stim.py` | 186 | StimGen integration: samples equal `sg render`, trial order and seeds equal `sg expand`, unit and clip checks, never a silent clip |
 | engine | `tests/test_engine.py` | 85 | scheduling (`period`, `gap`, late trials, trigger), rest values on every way out, abort with real signals, loopback wiring, noise, range clamping |
 | recording | `tests/test_record.py` | 100 | the HDF5 layout read back with h5py, the run folder and its checksums, abort, `kill -9`, full disk, unwritable folder, free-space refusal |
-| NEURON | `tests/test_neuron.py` | 96 | equality with a plain NEURON script, voltage clamp, synapse, state between trials, external models, mistakes, killed adapter, Ctrl-C, the student kit and every number the tutorials of docs/16 quote |
+| NEURON | `tests/test_neuron.py` | 119 | equality with a plain NEURON script, voltage clamp, synapse, state between trials, external models, mistakes, killed adapter, Ctrl-C, the student kit, the pipette and amplifier model against exact solutions and the analogue filter, and the numbers the tutorials of docs/16 quote |
 | multi-patch | `tests/test_multipatch.py` | 25 | three pipettes and a digital line on the loopback, end to end: gains, calibration, rest values, no crosstalk, voltage clamp, profiles, protocol noise, no hardware |
-| documents | `tests/test_docs.py` | 38 commands | every `$ ./lcg2 ...` line of the manual runs with the exit status it states |
+| documents | `tests/test_docs.py` | 76 commands | every `$ ./lcg2 ...` line of the manual runs with the exit status it states |
 | clean | `tests/check_clean.py` | | no data file or run folder was left in the repository |
 
 ## Checking the environment

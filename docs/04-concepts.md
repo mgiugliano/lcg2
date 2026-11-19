@@ -241,8 +241,9 @@ The HDF5 file has one group per trial (`trial_0000`, `trial_0001`, ...) with
 datasets for each input (`ai/<name>`, in physical units), for the command
 actually played (`ao/<name>`) and for markers. The rate, gains, calibration,
 seed, start time (UTC), delay and an `incomplete` flag are attributes. Datasets
-are extendable and the file is flushed after every trial, so a crashed run keeps
-its completed trials.
+are extendable and grow block by block as the trial is played, and the file is
+flushed about once a second of data and after every trial, so a crashed run keeps
+its completed trials and most of the one it was in.
 
 **Built (M4).** The exact layout, with a reader, is in [13 Data format](13-data-format.md)
 (and `SPEC.md`, section 4d). The stamp is local time; the folder is claimed with an atomic `mkdir`, so a run
@@ -275,12 +276,15 @@ Output goes to the right place: the plan of `-n` and the help of `-h` go to
 **stdout**; progress and errors go to **stderr**; data goes to files. Every
 error message starts with `lcg2: `.
 
-**Abort (built, M3).** Ctrl-C (SIGINT) and `kill` (SIGTERM) only set a flag. The code that
-waits, and the loop that reads the inputs, check it; the program then stops, drives every
-output to its rest value, and exits with status 2. The handler never does the work itself,
-because a signal can interrupt the program at any instant. A second Ctrl-C does not skip
-the rest step. The completed trials are closed in the HDF5 file and the
-running one is marked `incomplete` (built, M4).
+**Abort (built, M3).** Ctrl-C (SIGINT), `kill` (SIGTERM) and a hangup (SIGHUP: the terminal
+window closed, the ssh connection dropped) only set a flag; under `nohup` a hangup stays
+ignored. The code that waits, and the loop that reads the inputs, check it; the program then
+stops, drives every output to its rest value, and exits with status 2. The handler never does
+the work itself, because a signal can interrupt the program at any instant. A second Ctrl-C
+does not skip the rest step. The completed trials are closed in the HDF5 file and the
+running one is marked `incomplete` (built, M4), with the samples it had. Before the run
+(while the stimulus is checked, or while `-n` builds the NEURON cells) Ctrl-C stops the checks
+and exits with status 1: nothing was played.
 
 **What cannot be caught.** `kill -9` (SIGKILL), a power cut or a crash end the program at
 once; nothing can run after them. A real board then keeps the last values it was given. That

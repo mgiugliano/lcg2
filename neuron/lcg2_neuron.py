@@ -70,6 +70,8 @@ def number(text, what, units=None):
     if not m:
         raise Problem("%s: '%s' is not a number%s" % (what, text, " (units: %s)" % ", ".join(units) if units else ""))
     x, u = float(m.group(1)), m.group(2)
+    if not math.isfinite(x):
+        raise Problem("%s: '%s' is too large a number" % (what, text))
     if u:
         if not units or u not in units:
             raise Problem("%s: unknown unit '%s'%s" % (what, u, " (use %s)" % ", ".join(units) if units else " (give a plain number)"))
@@ -92,18 +94,27 @@ def autotype(text):
     except ValueError:
         pass
     try:
-        return float(t)
+        x = float(t)
     except ValueError:
         return t
+    return x if math.isfinite(x) else t              # 1e400, inf, nan: not numbers a model can use
+
+
+_INLINE_COMMENT = re.compile(r"\s;")
 
 
 def parse_ini(text):
-    """Sections of the INI text as {"cell P1": {key: value}} in file order (inline ';' comments are dropped)."""
+    """Sections of the INI text as {"cell P1": {key: value}} in file order, read as the C reader (inih) reads them: a
+    line that starts with ';' or '#' is a comment, and so is the rest of a line from a ';' that follows a space or a
+    tab (`model = a;b.hoc` names the file a;b.hoc)."""
     out, cur = {}, None
     for raw in text.splitlines():
-        line = raw.split(";", 1)[0].strip()
-        if not line or line.startswith("#"):
+        line = raw.strip()
+        if not line or line[0] in ";#":
             continue
+        m = _INLINE_COMMENT.search(line)
+        if m:
+            line = line[:m.start()].strip()
         if line.startswith("[") and line.endswith("]"):
             cur = " ".join(line[1:-1].split())
             out.setdefault(cur, {})
@@ -181,7 +192,7 @@ def load_mechanisms(h, folder, loaded):
         for f in mods:
             shutil.copy(os.path.join(folder, f), os.path.join(work, "mod", f))
         log("compiling %d .mod file(s) from %s (first time only; cached in %s)" % (len(mods), folder, work))
-        r = subprocess.run([exe, "mod"], cwd=work, stdout=sys.stderr, stderr=sys.stderr)
+        r = subprocess.run([exe, "mod"], cwd=work, stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=sys.stderr)
         lib = find()
         if r.returncode != 0 or lib is None:
             raise Problem("mechanisms: nrnivmodl failed on the .mod files in %s (its messages are in the NEURON log of "
@@ -1467,6 +1478,17 @@ def describe(net):
 # the pipe
 # --------------------------------------------------------------------------
 
+def nonfinite(obj, path=""):
+    """Where in a reply the numbers are that are not finite ("cells[0].v_rest_mV")."""
+    if isinstance(obj, float):
+        return [] if math.isfinite(obj) else [path or "a value"]
+    if isinstance(obj, dict):
+        return [p for k, v in obj.items() for p in nonfinite(v, "%s.%s" % (path, k) if path else k)]
+    if isinstance(obj, (list, tuple)):
+        return [p for i, v in enumerate(obj) for p in nonfinite(v, "%s[%d]" % (path, i))]
+    return []
+
+
 class Pipe(object):
     def __init__(self):
         # NEURON prints to the C-level stdout; keep the protocol on a private copy of it
@@ -1489,10 +1511,18 @@ class Pipe(object):
         return a
 
     def reply(self, obj, arrays=()):
-        buf = (json.dumps(obj) + "\n").encode()
-        for a in arrays:
-            buf += a.tobytes()
-        self.out.write(buf)
+        try:
+            text = json.dumps(obj, allow_nan=False)
+        except ValueError:                           # NaN or infinity, which JSON cannot carry: the model diverged
+            where = ", ".join(nonfinite(obj)) or "in its reply"
+            text = json.dumps({"ok": False, "error": "the NEURON model produced a value that is not a number (%s): it "
+                               "diverged; look for a time step too large for it, a mechanism with no steady state, or a "
+                               "parameter in the wrong unit" % where})
+            arrays = ()
+        buf = memoryview((text + "\n").encode() + b"".join(a.tobytes() for a in arrays))
+        while len(buf):                              # an unbuffered write may take only part of it
+            n = self.out.write(buf)
+            buf = buf[n:]
 
 
 def serve():

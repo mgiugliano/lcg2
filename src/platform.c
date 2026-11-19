@@ -34,11 +34,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
@@ -74,6 +76,10 @@ void platform_install_abort_handlers(void)
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
+    {
+        struct sigaction old;
+        if (sigaction(SIGHUP, NULL, &old) == 0 && old.sa_handler != SIG_IGN) sigaction(SIGHUP, &sa, NULL);
+    }
 }
 
 int  platform_abort_requested(void) { return abort_flag != 0; }
@@ -127,6 +133,19 @@ int64_t platform_free_bytes(const char *path)
     struct statvfs v;
     if (statvfs(path, &v) != 0) return -1;
     return (int64_t)v.f_bavail * (int64_t)v.f_frsize;
+}
+
+int64_t platform_file_room(const char *path)
+{
+    struct rlimit rl;
+    struct stat sb;
+    int64_t room = platform_free_bytes(path);
+    if (room < 0 || stat(path, &sb) != 0) return -1;
+    if (getrlimit(RLIMIT_FSIZE, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY) {
+        int64_t left = (int64_t)rl.rlim_cur - (int64_t)sb.st_size;
+        if (left < room) room = left < 0 ? 0 : left;
+    }
+    return room;
 }
 
 int platform_getcwd(char *buf, size_t n)
@@ -329,19 +348,47 @@ int platform_read_exact(int fd, void *buf, size_t n, int64_t timeout_ms)
     return 1;
 }
 
-int platform_write_all(int fd, const void *buf, size_t n)
+int platform_write_all(int fd, const void *buf, size_t n, int64_t timeout_ms)
 {
     const char *p = (const char *)buf;
+    int64_t waited = 0;
     while (n > 0) {
-        ssize_t k = write(fd, p, n);
-        if (k < 0) {
+        /* Write only when the pipe has room, and no more than PIPE_BUF at a time (what a writable pipe
+         * takes without blocking), so that a reader that has stopped reading cannot hold us forever. */
+        struct pollfd pf;
+        size_t m = n < PIPE_BUF ? n : PIPE_BUF;
+        ssize_t k;
+        int r;
+        pf.fd = fd; pf.events = POLLOUT; pf.revents = 0;
+        r = poll(&pf, 1, 100);
+        if (r < 0) {
             if (errno == EINTR) continue;
+            return -1;
+        }
+        if (r == 0) {
+            if (abort_flag) return -3;
+            waited += 100;
+            if (timeout_ms >= 0 && waited >= timeout_ms) return -2;
+            continue;
+        }
+        if (pf.revents & (POLLERR | POLLNVAL)) return -1;
+        k = write(fd, p, m);
+        if (k < 0) {
+            if (errno == EINTR || errno == EAGAIN) continue;
             return -1;
         }
         p += k;
         n -= (size_t)k;
+        waited = 0;
     }
     return 0;
+}
+
+/* The child leads its own process group: signal the group, so that what it started (a compiler, make) stops
+ * with it; the child alone if the group is not there (setpgid failed). */
+static void stop_group(pid_t pid, int sig)
+{
+    if (kill(-pid, sig) < 0) kill(pid, sig);
 }
 
 int platform_child_stop(long pid, int to_child, int from_child, int grace_ms)
@@ -357,7 +404,7 @@ int platform_child_stop(long pid, int to_child, int from_child, int grace_ms)
         if (r == (pid_t)pid) { done = 1; break; }
         if (r < 0 && errno != EINTR) return -1;
         if (waited >= grace_ms) break;
-        if (waited == grace_ms / 2) kill((pid_t)pid, SIGTERM);
+        if (waited == grace_ms / 2) stop_group((pid_t)pid, SIGTERM);
         {
             struct timespec ts;                      /* not platform_sleep_ns: an abort must not cut this short */
             ts.tv_sec = 0; ts.tv_nsec = 10 * 1000000L;
@@ -366,7 +413,7 @@ int platform_child_stop(long pid, int to_child, int from_child, int grace_ms)
         waited += 10;
     }
     if (!done) {
-        kill((pid_t)pid, SIGKILL);
+        stop_group((pid_t)pid, SIGKILL);
         while (waitpid((pid_t)pid, &status, 0) < 0 && errno == EINTR) {}
     }
     if (WIFEXITED(status)) return WEXITSTATUS(status);

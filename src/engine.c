@@ -191,41 +191,41 @@ static void progress(const EngineJob *job, const TrialInfo *ti, const TrialRecor
 }
 
 /*
- * Two slots hold the trials: trial i lives in slot[i & 1], so while trial i is
- * handled, trial i-1 is still alive in the other slot.  rest_drive always points
- * at the drive of the most recent trial that was prepared; its rest samples are
- * the state the outputs rest at, whatever stops the run.
+ * One trial is in memory at a time: trial i-1 is freed before trial i is
+ * prepared.  `rest` is the drive of the most recent trial that was prepared,
+ * without its samples (drive_rest_only): the state the outputs rest at, whatever
+ * stops the run, even a trial that fails to prepare.
  */
 int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
 {
     const Config *cfg = job->cfg;
     Backend *be = job->backend;
     Clock *clk = job->clock;
-    Prep slot[2];
-    const Drive *rest_drive;
+    Prep slot;
+    Drive rest;
     int count = job->st ? job->st->n : 1;
     int64_t prev_start = 0, prev_end = 0, t0, wall0;
     int status = ENGINE_OK, i;
     Err fail = { {0} };
 
     memset(rep, 0, sizeof *rep);
-    memset(slot, 0, sizeof slot);
+    memset(&slot, 0, sizeof slot);
     rep->is_virtual = clk->is_virtual;
 
     /* 1. Prepare the first trial before any output is touched. */
-    if (prepare(job, 0, &slot[0], err) < 0) { prep_free(&slot[0]); return ENGINE_FAILED; }
-    rest_drive = &slot[0].drive;
+    if (prepare(job, 0, &slot, err) < 0) { prep_free(&slot); return ENGINE_FAILED; }
+    drive_rest_only(&slot.drive, &rest);
 
     /* 2. Open the backend and set every output to rest. */
-    if (be->open(be, cfg, err) < 0) { prep_free(&slot[0]); return ENGINE_FAILED; }
+    if (be->open(be, cfg, err) < 0) { prep_free(&slot); return ENGINE_FAILED; }
     rep->touched = 1;
-    if (be->set_rest(be, cfg, rest_drive, err) < 0) { status = ENGINE_FAILED; goto finish; }
+    if (be->set_rest(be, cfg, &rest, err) < 0) { status = ENGINE_FAILED; goto finish; }
 
     /* 3. The trials. */
     t0 = clock_now(clk);
     wall0 = platform_wall_ns();               /* the run's start on the wall clock */
     for (i = 0; i < count; i++) {
-        Prep *p = &slot[i & 1];
+        Prep *p = &slot;
         TrialInfo ti;
         TrialRecord rec;
         PlayResult pr;
@@ -234,9 +234,9 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
         int r, k;
 
         if (i > 0) {                                  /* (trial 0 was prepared above) */
-            prep_free(p);                             /* trial i-2 is no longer needed */
+            prep_free(p);                             /* trial i-1 is no longer needed */
             if (prepare(job, i, p, &fail) < 0) { *err = fail; status = ENGINE_FAILED; break; }
-            rest_drive = &p->drive;
+            drive_rest_only(&p->drive, &rest);
         }
 
         /* When was it meant to start? */
@@ -335,7 +335,7 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
         prev_end = clock_now(clk);
 
         /* Between trials the outputs hold their rest value. */
-        if (be->set_rest(be, cfg, &p->drive, &fail) < 0) { *err = fail; status = ENGINE_FAILED; break; }
+        if (be->set_rest(be, cfg, &rest, &fail) < 0) { *err = fail; status = ENGINE_FAILED; break; }
         if (platform_abort_requested()) { status = ENGINE_ABORTED; break; }
     }
 
@@ -343,7 +343,7 @@ int engine_run(const EngineJob *job, EngineReport *rep, Err *err)
 finish:
     if (rep->touched) {
         Err last;
-        if (be->set_rest(be, cfg, rest_drive, &last) < 0) {
+        if (be->set_rest(be, cfg, &rest, &last) < 0) {
             /* Never silent, even with -q: the outputs may be where the trial left them. */
             fprintf(stderr, "lcg2: ERROR: the outputs may NOT be at rest: %s\n", last.msg);
             rep->rest_failed = 1;
@@ -352,8 +352,7 @@ finish:
         be->close(be);
     }
     rep->elapsed_ns = clock_now(clk);
-    prep_free(&slot[0]);
-    prep_free(&slot[1]);
+    prep_free(&slot);
     if (status == ENGINE_ABORTED && !job->quiet)
         fprintf(stderr, "lcg2: aborted after %d of %d trial(s): outputs at rest\n", rep->completed, count);
     return status;

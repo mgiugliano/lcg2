@@ -227,6 +227,9 @@ def test_reference(tmp):
         prov = json.loads(f["provenance"].asstr()[()])
         check("the provenance names the adapter and its digest", prov["neuron"]["adapter_sha256"] != "unreadable"
               and prov["neuron"]["adapter"].endswith("lcg2_neuron.py"), json.dumps(prov.get("neuron")))
+        check("the provenance names the NEURON simulator, not the loopback one",
+              "NEURON simulator" in prov["convert_rate_note"] and "NEURON simulator" in prov["rate"]["obtained"] and
+              "loopback" not in json.dumps(prov), prov["convert_rate_note"])
     # calibration and gain are exercised: a gain of 200 mV/V gives different volts, same millivolts
     ini2 = write_ini(d, name="rig2.ini")
     s = open(ini2).read().replace("gain_cc = 100", "gain_cc = 200", 1).replace("gain_cc = 400", "gain_cc = 800", 1)
@@ -420,6 +423,44 @@ electrode = dend(1)
               str(net)[:300])
         v = go(["shasum", "-a", "256", "-c", os.path.relpath(os.path.join(fol, "SHA256SUMS"), work)], work)
         check("shasum -c verifies the whole folder, the adapter's log included", v.returncode == 0, v.stdout + v.stderr)
+
+
+def test_adapter_reading(tmp):
+    """The adapter reads its text as the C side does, and never sends what C cannot read (no NEURON needed)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lcg2_neuron_t", os.path.join(ROOT, "neuron", "lcg2_neuron.py"))
+    ad = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ad)
+    secs = ad.parse_ini("[cell A]\nmodel = a;b.hoc\nsoma_diam = 20 ; a comment\n; whole line\n# also\n  ; indented\n")
+    check("adapter: ';' starts a comment only after a space, as in the C reader (model = a;b.hoc names the file a;b.hoc)",
+          secs == {"cell A": {"model": "a;b.hoc", "soma_diam": "20"}}, secs)
+    try:
+        ad.number("1e400", "x")
+        big = "accepted"
+    except ad.Problem as e:
+        big = str(e)
+    check("adapter: a number too large for a double (1e400) is refused, not read as infinity", "too large" in big, big)
+    check("adapter: 1e400 in a model parameter stays text (not infinity)", ad.autotype("1e400") == "1e400")
+
+    class Out(object):                               # takes at most 7 bytes at a time, as a pipe may
+        def __init__(self):
+            self.got = b""
+
+        def write(self, b):
+            self.got += bytes(b[:7])
+            return min(7, len(b))
+    p = ad.Pipe.__new__(ad.Pipe)
+    p.out = Out()
+    import array
+    p.reply({"ok": True, "count": 2}, [array.array("d", [1.5, -2.0])])
+    head, _, rest = p.out.got.partition(b"\n")
+    check("adapter: a reply is written whole even when the pipe takes it in pieces",
+          json.loads(head) == {"ok": True, "count": 2} and array.array("d", rest).tolist() == [1.5, -2.0], p.out.got)
+    p.out = Out()
+    p.reply({"ok": True, "cells": [{"name": "A", "v_rest_mV": float("nan")}]})
+    msg = json.loads(p.out.got)
+    check("adapter: a NaN in a reply becomes a clear error (the model diverged), still valid JSON",
+          msg["ok"] is False and "diverged" in msg["error"] and "cells[0].v_rest_mV" in msg["error"], msg)
 
 
 def test_mistakes(tmp):
@@ -1300,11 +1341,59 @@ def test_live(tmp):
     check("live: without a terminal -L is refused, and nothing is written",
           r.returncode == 1 and "needs a terminal" in r.stderr and not os.listdir(w), r.stderr)
 
+    # the terminal goes away in the middle of a session (a closed window, a dropped ssh): the run ends as
+    # aborted, with the data so far, and the adapter is stopped
+    w = newdir(tmp, "live_hangup")
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(w)
+        os.execv(LCG2, [LCG2, "-L", "-s", "1", "-m", "vc", "-P", "live", "-c", os.path.join(d, "rig_patch.ini"),
+                        os.path.join(d, "seal_test_live.sg")])
+    out, t0, started, kids = b"", time.time(), None, []
+    while time.time() - t0 < 60 and (started is None or time.time() - started < 1.5):
+        if started is None and b"live: c touch" in out:
+            started = time.time()
+            kids = [int(x) for x in subprocess.run(["pgrep", "-P", str(pid)], stdout=subprocess.PIPE,
+                                                   universal_newlines=True).stdout.split()]
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            try:
+                out += os.read(fd, 4096)
+            except OSError:
+                break
+    os.close(fd)                                      # the hangup: the terminal is gone
+    t1 = time.time()
+    st = None
+    while time.time() - t1 < 20:
+        done, st = os.waitpid(pid, os.WNOHANG)
+        if done:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    time.sleep(0.3)
+    left = [k for k in kids if subprocess.run(["kill", "-0", str(k)], stderr=subprocess.DEVNULL).returncode == 0]
+    try:
+        f = h5py.File(h5_of(w), "r")
+        trials = sorted(k for k in f if k.startswith("trial_"))
+        last_incomplete = bool(trials) and f[trials[-1]].attrs["incomplete"] == 1
+        f.close()
+    except Exception as e:                            # noqa
+        trials, last_incomplete = ["unreadable: %s" % e], False
+    log = open(glob.glob(os.path.join(folder_of(w), "log.txt"))[0]).read() if folder_of(w) else ""
+    # (the hangup lands in a pulse or in the pause between two: the last trial is incomplete only in the first case)
+    check("live: a hangup ends the session as aborted (exit status 2) within seconds, the data so far kept, the "
+          "outputs at rest (%d trials, the last %s)" % (len(trials), "incomplete" if last_incomplete else "complete"),
+          st is not None and os.WIFEXITED(st) and os.WEXITSTATUS(st) == 2 and len(trials) > 3 and
+          "end  ABORTED" in log and "may NOT be at rest" not in log, (st, trials[-2:], log[-300:]))
+    check("...and the NEURON adapter was stopped (%d child process(es) before)" % len(kids), kids and not left, (kids, left))
+
 
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
-        for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
+        for t in (test_adapter_reading, test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
                   test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_patch, test_tutorial_l, test_live, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:

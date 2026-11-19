@@ -82,17 +82,44 @@ void sb_addf(StrBuf *b, const char *fmt, ...)
     }
 }
 
+/* The length of the well-formed UTF-8 sequence at s (2 to 4), or 0 if there is none there (RFC 3629: no
+ * overlong forms, no surrogates, nothing above U+10FFFF). */
+static int utf8_length(const unsigned char *s)
+{
+    unsigned char c = s[0];
+    int n, k;
+    unsigned lo = 0x80, hi = 0xBF;
+    if (c >= 0xC2 && c <= 0xDF) n = 2;
+    else if (c >= 0xE0 && c <= 0xEF) { n = 3; if (c == 0xE0) lo = 0xA0; if (c == 0xED) hi = 0x9F; }
+    else if (c >= 0xF0 && c <= 0xF4) { n = 4; if (c == 0xF0) lo = 0x90; if (c == 0xF4) hi = 0x8F; }
+    else return 0;
+    if (s[1] < lo || s[1] > hi) return 0;
+    for (k = 2; k < n; k++) if (s[k] < 0x80 || s[k] > 0xBF) return 0;
+    return n;
+}
+
 void sb_json(StrBuf *b, const char *text)
 {
+    const unsigned char *p = (const unsigned char *)text;
     sb_add(b, "\"");
-    for (; *text; text++) {
-        unsigned char c = (unsigned char)*text;
+    while (*p) {
+        unsigned char c = *p;
+        int n;
         if (c == '"' || c == '\\') { char t[3] = { '\\', (char)c, 0 }; sb_add(b, t); }
         else if (c == '\n') sb_add(b, "\\n");
         else if (c == '\r') sb_add(b, "\\r");
         else if (c == '\t') sb_add(b, "\\t");
-        else if (c < 0x20) sb_addf(b, "\\u%04x", c);
-        else { char t[2] = { (char)c, 0 }; sb_add(b, t); }
+        else if (c < 0x20 || c == 0x7F) sb_addf(b, "\\u%04x", c);
+        else if (c < 0x80) { char t[2] = { (char)c, 0 }; sb_add(b, t); }
+        else if ((n = utf8_length(p)) > 0) {
+            char t[5] = { 0 };
+            memcpy(t, p, (size_t)n);
+            sb_add(b, t);
+            p += n;
+            continue;
+        }
+        else sb_addf(b, "\\u%04x", c);   /* not UTF-8 (Latin-1, say): the byte, as the character of that number */
+        p++;
     }
     sb_add(b, "\"");
 }
@@ -368,7 +395,7 @@ void archive_log(Archive *a, const char *fmt, ...)
 
 int archive_finish(Archive *a, Err *err)
 {
-    char hex[65], path[260];
+    char hex[65], loghex[65], path[260], logpath[260];
     int64_t size;
     FILE *f;
     int k, ok = 1;
@@ -377,21 +404,25 @@ int archive_finish(Archive *a, Err *err)
     a->finished = 1;
     if (lcg_sha256_file(a->h5, hex, &size, err) < 0) return -1;
     archive_log(a, "data  %s  %lld bytes  sha256 %s", a->h5, (long long)size, hex);
-    /* the data file goes first in SHA256SUMS, then every item, paths relative to the working folder */
-    snprintf(path, sizeof path, "%s/SHA256SUMS", a->dir);
-    f = fopen(path, "w");
-    if (!f) return err_set(err, "cannot create '%s': %s", path, strerror(errno));
-    fprintf(f, "%s  %s\n", hex, a->h5);
-    for (k = 0; k < a->nitem; k++) fprintf(f, "%s  %s\n", a->item[k].sha, a->item[k].path);
-    if (fclose(f) != 0) ok = 0;
-    if (!ok) return err_set(err, "cannot finish writing '%s': %s", path, strerror(errno));
     for (k = 0; k < a->nitem; k++)
         archive_log(a, "sha256 %s  %s", a->item[k].sha, a->item[k].path);
-    archive_log(a, "digests of %d items written to %s", a->nitem + 1, path);
+    snprintf(path, sizeof path, "%s/SHA256SUMS", a->dir);
+    snprintf(logpath, sizeof logpath, "%s/log.txt", a->dir);
+    archive_log(a, "digests of %d items written to %s; this log is the last of them, and ends here", a->nitem + 2, path);
+    /* the log is finished before its digest is taken, so that it is covered too */
     if (a->log) {
         if (fclose(a->log) != 0) { a->log = NULL; return err_set(err, "cannot finish writing the log: %s", strerror(errno)); }
         a->log = NULL;
     }
+    if (lcg_sha256_file(logpath, loghex, NULL, err) < 0) return -1;
+    /* the data file goes first in SHA256SUMS, then every item, then the log, paths relative to the working folder */
+    f = fopen(path, "w");
+    if (!f) return err_set(err, "cannot create '%s': %s", path, strerror(errno));
+    fprintf(f, "%s  %s\n", hex, a->h5);
+    for (k = 0; k < a->nitem; k++) fprintf(f, "%s  %s\n", a->item[k].sha, a->item[k].path);
+    fprintf(f, "%s  %s\n", loghex, logpath);
+    if (fclose(f) != 0) ok = 0;
+    if (!ok) return err_set(err, "cannot finish writing '%s': %s", path, strerror(errno));
     return 0;
 }
 

@@ -137,10 +137,14 @@ Read [07](07-stimgen.md) for the whole story; in short:
 The only file that may call an operating-system function. POSIX only; any other system stops the
 build with an `#error` (the machine that will have the board is not decided). It provides:
 
-- **the abort flag**: SIGINT and SIGTERM are caught with `sigaction`, with no `SA_RESTART` (so a
-  signal interrupts a sleep or a read) and no `SA_RESETHAND` (so a second Ctrl-C does not restore the
-  default and kill the program before the outputs are at rest). The handler only sets a
+- **the abort flag**: SIGINT, SIGTERM and SIGHUP are caught with `sigaction` (a SIGHUP that is ignored, as
+  under `nohup`, stays ignored), first thing in `main()` so that the checks and `-n` are covered too, with no
+  `SA_RESTART` (so a signal interrupts a sleep or a read) and no `SA_RESETHAND` (so a second Ctrl-C does not
+  restore the default and kill the program before the outputs are at rest). The handler only sets a
   `volatile sig_atomic_t`; everyone else polls it;
+- **a child on two pipes** (the NEURON adapter): it leads its own process group, and stopping it signals the
+  group, so that what it started (`nrnivmodl`, a compiler) stops too. A write to it waits only while the pipe
+  has room, in pieces of `PIPE_BUF`, so an abort is heard even if the adapter has stopped reading;
 - **clocks**: a monotonic one, and a `Clock` the engine uses, which is either *real* (waiting waits) or
   *virtual* (waiting just moves a counter: a thousand trials 5 s apart run in an instant, and every
   time is exact; tests depend on this);
@@ -154,6 +158,13 @@ inputs, and hands them over **in blocks of about 0.1 s** through a callback, as 
 deliberate: the recording (record.c) grows on disk as it arrives, the completed part of an aborted trial is kept,
 and a long record-only run never holds its whole record in memory. The interface is **provisional**: the
 hardware spike may change it.
+
+**Memory.** An output a trial does not name has no array in the `Drive` (read samples with `drive_ao()` and
+`drive_dig()`), so a record-only run (`-t`) holds no trial-length array at all: 26 MB after 2 minutes at 100 kHz,
+33 MB after 10 (a slow growth of about 1 MB per minute remains, not yet traced). The engine keeps one trial at a time, plus the rest values of the last one prepared. A stimulus trial
+is held whole, twice (its samples and the volts that drive the outputs), and StimGen itself needs about three
+copies of it while it renders: a single trial of 60 s at 100 kHz peaks at about 220 MB (measured 2026-11-19).
+Computing the volts block by block would remove one copy; it would change what `play()` receives.
 
 The loopback wires `aoN` to `aiN`, adds deterministic noise, clamps and counts samples beyond an
 input's range, can be given a start latency, and keeps a log of what it did (`O` open, `R` rest, `T`
@@ -207,7 +218,7 @@ reference the tests compare with. Nothing is ever written inside the StimGen fol
 |:--|:--|
 | `tests/run_tests.py` | about 180 cases: good and bad command lines and configurations, each with the exit status and a fragment of the message; the round trip of the resolved configuration; the pin check (a faithful copy accepted, a changed or missing file refused; skipped with a note if your StimGen differs from the pin); all examples load |
 | `tests/test_stim.py` | about 180 checks of the StimGen integration: samples equal `sg render` bit for bit (plain stimulus, protocols, plain waveform, `-e`, other units); trial order and seeds equal `sg expand`; two renders without a seed are identical; every combination of the rate rules; messages are translated; mapping, unit and clipping refusals; the volts and rest samples; the JSON reader against an independent parser, a table of hostile inputs and 500 mutations |
-| `tests/test_engine.py` | about 85 checks of the engine and the loopback: exact timing for period, gap, a trial longer than its period, start latency and a trigger; one hour of simulated time; the order of operations and the final state of every output on **every way out** (normal, abort before, between and during a trial, a refused trial, a failing sink, a failing rest); UTC times to the millisecond; the loopback's numbers, noise, range clamping and calibration; the program's streams and exit statuses; and **real SIGINT and SIGTERM sent to the real program** (blocked on the Enter prompt, so nothing races), with the state of the outputs read back |
+| `tests/test_engine.py` | about 95 checks of the engine and the loopback: exact timing for period, gap, a trial longer than its period, start latency and a trigger; one hour of simulated time; the order of operations and the final state of every output on **every way out** (normal, abort before, between and during a trial, a refused trial, a failing sink, a failing rest); UTC times to the millisecond; the loopback's numbers, noise, range clamping and calibration; the program's streams and exit statuses; and **real SIGINT and SIGTERM sent to the real program** (blocked on the Enter prompt, so nothing races), with the state of the outputs read back |
 | `build/unit` (`tests/unit.c`) | checks of `out_check_value` (exact boundaries, NaN and infinity, a negative calibration scale), of the exact rate fraction, of the 128-bit time arithmetic and the timing parser, and of the **error trap**: stimuli that StimGen rejects in seven different ways, alternating with good ones in one process, must each come back as an error and never end the program |
 | `tests/test_docs.py` | every `$ ./lcg2 ...` line in `docs/` and `README.md` runs with the expected exit status |
 

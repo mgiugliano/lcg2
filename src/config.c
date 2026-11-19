@@ -567,6 +567,9 @@ static int build_rig(const Table *t, Mode mode_flag, Config *c, Err *err)
         if (units_parse_rate(en->val, &c->rate_p, &c->rate_q) < 0)
             return cfg_err(t, en, err, "'%s' is not a rate (examples: 20kHz, 10000, "
                            "2.5Hz)", en->val);
+        if (strlen(en->val) > UNITS_RATE_TEXT_MAX)
+            return cfg_err(t, en, err, "the rate is written with more than %d characters; write it shorter "
+                           "(20kHz)", UNITS_RATE_TEXT_MAX);
         snprintf(c->rate_text, sizeof c->rate_text, "%s", en->val);
         c->has_rate = 1;
     }

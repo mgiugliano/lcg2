@@ -2,7 +2,7 @@
 
 > **Status: built (milestone M4).** Everything on this page is what `lcg2` writes today, on the
 > simulator. A board changes nothing in the layout: only `device` and the values differ.
-> The layout is tested by `tests/test_record.py` (100 checks, with h5py), and
+> The layout is tested by `tests/test_record.py` (104 checks, with h5py), and
 > [`examples/read_run.py`](../examples/read_run.py) is a reader that is part of that test.
 
 Every run that plays at least one trial leaves two things in the **current folder**:
@@ -35,7 +35,7 @@ creates anything (see [Disk space](#disk-space)).
 | `network.json`, `neuron.log` | `device = neuron` only: the cells and synapses as they were built, and everything the adapter and NEURON printed (see [14](14-neuron-models.md)) |
 | `live_replay.ini` | `-L` only: the events of the live session as a `[profile live_replay]` of timeline keys, to replay it (see [14](14-neuron-models.md#live-mode)); the events are also lines of `log.txt` (`event  <time>ms  <what>  <said>`) |
 | `log.txt` | the log of the run, line by line, flushed as it goes |
-| `SHA256SUMS` | SHA-256 of the data file and of every item above; the data file comes first |
+| `SHA256SUMS` | SHA-256 of the data file and of every item above; the data file comes first and `log.txt` last (the log is finished before its digest is taken, so its last line says that the digests follow; it cannot list its own) |
 
 `SHA256SUMS` paths are relative to the folder the run ran in, so, **from that folder**:
 
@@ -60,14 +60,17 @@ prints `OK` for every item. A changed byte anywhere is reported.
 |   |                                  n_samples, scheduled_ns, start_ns, end_ns, delay_ns, latency_ns,
 |   |                                  start_utc, virtual_time, recorded, incomplete
 |   +-- ai/<name>   float64            the recording, physical units (mV or pA)
-|   +-- ao/<name>   float64 | uint8    the command actually played (output unit; digital: 0/1)
+|   +-- ao/<name>   float64 | uint8    the command as played (output unit; digital: 0/1)
 |   +-- markers                        compound dataset
 |   +-- info        (string, JSON)     only for protocol trials
 +-- trial_0001/ ...
 ```
 
-- **Datasets** `ai/<name>` and `ao/<name>` are 1-D, chunked (8192 samples), extendable, `float64`,
+- **Datasets** `ai/<name>` and `ao/<name>` are 1-D, chunked (8192 samples, or the trial's length if it is shorter), extendable, `float64`,
   uncompressed, named like the `[in NAME]` and `[out NAME]` sections. Idle outputs have no dataset.
+  Both grow block by block (0.1 s) as the trial is played, so the `ai` and `ao` datasets of a trial always have the
+  same length: `n_samples` for a complete trial, `recorded` for one that was stopped (the command is what was
+  played while the inputs were recorded, not what had been planned).
 - **Attributes of an `ai` dataset:** `unit`, `line`, `gain`, `cal_scale`, `cal_offset`, `range_v`,
   `terminal`, `mode`, `overrange_samples` (the samples the board or simulator clamped). With `membrane_test = yes` in its `[in]`
   (voltage clamp): `membrane_test_dv_mV`, `membrane_test_R_MOhm` (infinite if the current did not change) and
@@ -79,7 +82,11 @@ prints `OK` for every item. A changed byte anywhere is reported.
 - **`incomplete`** is set to 1 when a trial *begins* and to 0 only when it ends complete. After an abort or a
   crash, a trial with `incomplete = 1` holds the samples recorded until then; the completed trials before it
   are intact.
-- The file is flushed after every trial.
+- The file is flushed after every trial and, in the middle of a trial, about once a second of data, so a long
+  trial survives a crash up to its last second. A flush that fails half way (a full disk) can leave a file that
+  no longer opens, so the mid-trial flushes are made only while the disk has room for several seconds more; when
+  it runs short the file is flushed at the end of each trial only, and the log says so (`note  N flush(es) ...
+  were left out`).
 
 ### Reading it (Python)
 
@@ -113,7 +120,8 @@ Measured on the development Mac (HDF5 2.0.0) with deliberately violent tests:
 |:--|:--|
 | Ctrl-C, errors, abort | the completed trials are closed and readable; the running trial is marked `incomplete` |
 | `kill -9` at a random moment | in 120 trials of the test **1 file** was unreadable (0 in 164 with HDF5's default format; see below); otherwise the completed trials were readable |
-| full disk | the completed trials stay readable; only the trial being written when the disk filled can be damaged |
+| `kill -9` in a long trial | 40 recordings of 30 s at 100 kHz killed at random moments between 0.5 and 8 s: every file opened, and each kept the trial up to its last whole second (2026-11-19) |
+| full disk | the completed trials stay readable; only the trial being written when the disk filled can be damaged (12 file-size limits: every file opened, as before the mid-trial flushes; with mid-trial flushes regardless of room, 5 of 12 did not) |
 
 So: **completed trials are normally readable after a crash; this is not an absolute guarantee**, because
 HDF5 itself does not give one (`H5Fflush` does not either). The remedy is the one every recording system
@@ -128,7 +136,9 @@ a `kill -9`, measured above. A different range is a one-line change and a new me
 ### Disk space
 
 Before anything is created the program estimates the size
-(`samples * (inputs + commands) * 8 bytes + 128 KiB + 20 KiB per trial`) and refuses if the free space
+(`(samples + slack) * (inputs + commands) * 8 bytes + 128 KiB + 20 KiB per trial`, where the slack, 8192 samples
+per trial but never more than the samples themselves, covers the last chunk of each dataset, which is stored
+whole) and refuses if the free space
 is below that estimate times 1.1 plus 1 MB. The log line `disk  the data is expected to take about N bytes; M bytes free`
 records it.
 
@@ -142,8 +152,13 @@ Paths resolve against the **current folder** (the owner's decision).
 
 ## Warnings in the record
 
-Warnings (for example, a voltage beyond the input range, clamped) are logged as
-`warning  <text>  (N trials, first in trial X)` and listed in `provenance.json`.
+StimGen's warnings, found when every trial is checked before the run, are logged as
+`warning  <text>  (N trials, first in trial X)` and listed in `provenance.json`. What happens during the run
+(input samples beyond the range, clamped) is in `log.txt` (`warning  trial ...`) and in each input's
+`overrange_samples` attribute, not in `provenance.json`, which is written before the run starts.
+
+Text that is not UTF-8 (a Latin-1 letter in a comment, say) appears in `provenance.json` with each such byte
+written as `\u00XX`, so that the JSON stays valid; `stimulus.sg` keeps the bytes as they were.
 
 ## Not recorded (yet)
 

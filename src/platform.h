@@ -48,7 +48,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Catch SIGINT and SIGTERM and turn them into the abort flag. */
+/* Catch SIGINT, SIGTERM and SIGHUP (a closed terminal, a dropped ssh session) and turn them into the abort
+ * flag.  A SIGHUP that is ignored (nohup) stays ignored.  main() installs them first thing, so that an abort
+ * during the checks (-n included) also ends cleanly. */
 void platform_install_abort_handlers(void);
 
 int  platform_abort_requested(void);     /* 1 once Ctrl-C or kill has arrived  */
@@ -76,6 +78,10 @@ int platform_mkdir(const char *path);
 
 /* The bytes free for an ordinary user on the file system that holds `path`; -1 if unknown. */
 int64_t platform_free_bytes(const char *path);
+
+/* How many more bytes the file `path` can grow by: the free space of its file system, or less if the
+ * process has a limit on the size of a file (RLIMIT_FSIZE); -1 if unknown. */
+int64_t platform_file_room(const char *path);
 
 /* The current working folder; 0 on success. */
 int platform_getcwd(char *buf, size_t n);
@@ -151,10 +157,13 @@ int platform_spawn(char *const argv[], const char *stderr_path, long *pid, int *
  * while waiting (checked every 100 ms). */
 int platform_read_exact(int fd, void *buf, size_t n, int64_t timeout_ms);
 
-/* Write all n bytes. Returns 0, or -1 (EPIPE included). */
-int platform_write_all(int fd, const void *buf, size_t n);
+/* Write all n bytes to a pipe.  Returns 0, -1 on an error (EPIPE included), -2 if the reader took nothing for
+ * timeout_ms (< 0: no limit), or -3 on an abort while the pipe was full: a reader that keeps reading is
+ * written to even after an abort, so that the outputs can still be put at rest. */
+int platform_write_all(int fd, const void *buf, size_t n, int64_t timeout_ms);
 
-/* Close the pipes, ask the child to end (SIGTERM), wait up to grace_ms, then kill it, and reap it.
+/* Close the pipes, ask the child to end (SIGTERM), wait up to grace_ms, then kill it, and reap it.  The
+ * signals go to the child's process group (platform_spawn makes one), so that what it started stops too.
  * Returns the exit status, or 128 + signal, or -1 if there was nothing to wait for. */
 int platform_child_stop(long pid, int to_child, int from_child, int grace_ms);
 

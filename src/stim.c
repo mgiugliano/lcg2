@@ -351,7 +351,13 @@ static int decode_sgb(const uint8_t *b, size_t size, Trial *t, Err *err)
         t->mark = (Marker *)calloc(mk->n, sizeof *t->mark);
         if (!t->mark) { json_free(h); return err_set(err, "out of memory"); }
         for (k = 0; k < mk->n; k++) {
-            copy_fit(t->mark[k].name, sizeof t->mark[k].name, json_str_or(mk->item[k], "name", ""));
+            const char *mname = json_str_or(mk->item[k], "name", "");
+            if (!copy_fit(t->mark[k].name, sizeof t->mark[k].name, mname)) {
+                err_set(err, "the marker %.40s... is named with more than %d characters (the channel, a dot and "
+                        "the marker's own name): give it a shorter name", mname, (int)sizeof t->mark[k].name - 1);
+                json_free(h);
+                return -1;
+            }
             t->mark[k].sample = (int64_t)json_num_or(mk->item[k], "sample", 0);
         }
         t->nmark = (int)mk->n;
@@ -404,7 +410,9 @@ static int render_with(const Stim *st, int i, const char *rate_arg, Trial *t, Er
     rc = sg_api_render_trial(text, rate_arg, seed, unit, info, st->is_protocol ? st->text : "");
     if (rc != 0) return sg_fail(st->source, trial, err);
     take_warnings(t, sg_api_warnings());
-    if (decode_sgb(sg_api_result(), sg_api_result_size(), t, err) < 0) {
+    rc = decode_sgb(sg_api_result(), sg_api_result_size(), t, err);
+    sg_api_kind("");               /* every call frees what the previous one kept: StimGen's own copy of the samples */
+    if (rc < 0) {
         trial_free(t);
         return -1;
     }
@@ -482,7 +490,7 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
 {
     char kind[16];
     Trial t;
-    char first_rate[48];
+    char first_rate[UNITS_RATE_TEXT_MAX + 1], first_seed[24];
     Err e1;
     int rc;
 
@@ -598,6 +606,10 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
     }
     if (rc < 0) { *err = e1; stim_free(st); return -1; }
 
+    /* Only the seed of this render is needed from here on: free its samples before rendering again. */
+    snprintf(first_seed, sizeof first_seed, "%s", t.seed);
+    trial_free(&t);
+
     /* Where did the seed of a plain stimulus come from?  -s; or the stimulus
      * itself (a "seed" line: every render gives the same seed); or a random
      * draw (every render gives another).  Render once more and compare. */
@@ -608,7 +620,7 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
             Trial again;
             Err ignore;
             if (render_with(st, 0, st->rate_arg, &again, &ignore) == 0) {
-                if (strcmp(again.seed, t.seed) == 0) st->seed_source = SEED_STATED;
+                if (strcmp(again.seed, first_seed) == 0) st->seed_source = SEED_STATED;
                 trial_free(&again);
             }
         }
@@ -616,12 +628,10 @@ int stim_open(Stim *st, char *text, const char *source, const Options *opt,
 
     /* A plain stimulus: fix its seed now, so that every later render is the
      * same.  (A protocol's trial seeds are already fixed in its trial list.) */
-    if (!st->is_protocol && !copy_fit(st->seed_arg, sizeof st->seed_arg, t.seed)) {
-        trial_free(&t);
+    if (!st->is_protocol && !copy_fit(st->seed_arg, sizeof st->seed_arg, first_seed)) {
         stim_free(st);
         return err_set(err, "internal error: seed too long");
     }
-    trial_free(&t);
     return 0;
 }
 
@@ -803,11 +813,11 @@ static int build_drive(const Trial *t, const Map *map, const Config *cfg, int64_
             if (map[j].out == k) { ch = &t->ch[j]; sc = map[j].scale; }
 
         if (o->digital) {
-            unsigned char *b;
+            unsigned char *b = NULL;
             if (d->ndig >= 8) { drive_free(d); return err_set(err, "too many digital lines"); }
-            b = (unsigned char *)calloc((size_t)total, 1);
-            if (!b) { drive_free(d); return err_set(err, "out of memory"); }
-            if (ch) {
+            if (ch) {                              /* an idle line has no array: it is 0 throughout */
+                b = (unsigned char *)malloc((size_t)total);
+                if (!b) { drive_free(d); return err_set(err, "out of memory"); }
                 for (i = 0; i < n; i++) b[i] = ch->x[i] != 0.0;
                 for (i = n; i < total; i++) b[i] = ch->rest != 0.0;
             }
@@ -815,22 +825,21 @@ static int build_drive(const Trial *t, const Map *map, const Config *cfg, int64_
             d->dig[d->ndig].out = k;
             d->dig[d->ndig++].b = b;
         } else {
-            double *v;
+            double *v = NULL;
             double rest_volts;
             if (d->nao >= 4) { drive_free(d); return err_set(err, "too many analog outputs"); }
-            v = (double *)malloc((size_t)total * sizeof(double));
-            if (!v) { drive_free(d); return err_set(err, "out of memory"); }
             /* An output the stimulus does not name sits at the rest value of
-             * the configuration (in the unit of the mode); a named one rests at
-             * the stimulus's own rest value. */
+             * the configuration (in the unit of the mode), and has no array; a
+             * named one rests at the stimulus's own rest value. */
             rest_volts = out_written_volts(o, out_wanted_volts(o, cfg->mode,
                                            ch ? ch->rest * sc : o->rest));
-            if (ch)
+            if (ch) {
+                v = (double *)malloc((size_t)total * sizeof(double));
+                if (!v) { drive_free(d); return err_set(err, "out of memory"); }
                 for (i = 0; i < n; i++)
                     v[i] = out_written_volts(o, out_wanted_volts(o, cfg->mode, ch->x[i] * sc));
-            else
-                for (i = 0; i < n; i++) v[i] = rest_volts;
-            for (i = n; i < total; i++) v[i] = rest_volts;
+                for (i = n; i < total; i++) v[i] = rest_volts;
+            }
             d->ao_rest[d->nao] = rest_volts;
             d->ao[d->nao].out = k;
             d->ao[d->nao++].v = v;
@@ -847,6 +856,24 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
 int stim_drive_idle(const Config *cfg, int64_t n, Drive *d, Err *err)
 {
     return build_drive(NULL, NULL, cfg, n, d, err);
+}
+
+double drive_ao(const Drive *d, int k, int64_t i)
+{
+    return d->ao[k].v ? d->ao[k].v[i] : d->ao_rest[k];
+}
+
+unsigned char drive_dig(const Drive *d, int k, int64_t i)
+{
+    return d->dig[k].b ? d->dig[k].b[i] : d->dig_rest[k];
+}
+
+void drive_rest_only(const Drive *d, Drive *rest)
+{
+    int k;
+    *rest = *d;
+    for (k = 0; k < rest->nao; k++) rest->ao[k].v = NULL;
+    for (k = 0; k < rest->ndig; k++) rest->dig[k].b = NULL;
 }
 
 /* ------------------------------------------------------------------ */

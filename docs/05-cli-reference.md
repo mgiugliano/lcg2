@@ -14,7 +14,9 @@ Exactly one of these three must be given: a stimulus file, `-e`, or `-t`.
   `-r 20kHz`, not `-r20kHz`.
 - Short options **cannot be combined**: `-n -v`, not `-nv`.
 - An option may be given **once**.
-- An option that takes a value must have one: `-c ''` is an error (except `-e`).
+- An option that takes a value must have one: `-c ''` is an error (except `-e`). A value that is exactly
+  one of these options (`-p -n`) is taken as a missing value and refused, so a forgotten value never turns
+  the next option into a file name.
 - `-` (standard input) is not a stimulus file.
 - `-h` anywhere prints the help and stops (exit status 0), before anything else is checked.
 
@@ -25,12 +27,12 @@ Exactly one of these three must be given: a stimulus file, `-e`, or `-t`.
 | `-c` | `FILE` | configuration file. Default: `lcg2.ini` in the current directory. |
 | `-P` | `NAME` | rig profile: apply the section `[profile NAME]`. |
 | `-m` | `cc` or `vc` | amplifier mode (current clamp or voltage clamp). Overrides `mode` in `[rig]`. One of the two is required. |
-| `-r` | `RATE` | sampling rate: `20kHz`, `10000` (Hz), `2.5Hz`, `1e4`, `0.5MHz`. A rate written in the stimulus wins; a different `-r` is an error. |
+| `-r` | `RATE` | sampling rate: `20kHz`, `10000` (Hz), `2.5Hz`, `1e4`, `0.5MHz`, written with at most 47 characters. A rate written in the stimulus wins; a different `-r` is an error. |
 | `-s` | `SEED` | seed of the random generators: a non-negative integer. Without it one is drawn and recorded. |
 | `-T` | `NAME` | send a *plain waveform* (a signal that names no channel) to the pipette `NAME`, which must be an analog `[out NAME]` in use. Required for a plain waveform; an error with a stimulus. |
 | `-t` | `DURATION` | record only, for that long: `30s`, `500ms`, `250us`, `2min`. The unit is required; the value must be above 0. It is one trial with every output at rest, so it needs a rate (`-r` or `[rig]`). |
 | `-e` | `TEXT` | the stimulus text given inline instead of in a file. A full stimulus needs newlines (`-e $'sg 2 stimulus\nchannel P1 unit=pA { 1s dc(0) }'` in bash); a plain waveform may be one line, `;` separating segments, as in StimGen's `sg`. |
-| `-p` | `PREFIX` | prefix of the output file names. Letters, digits, `_`, `-`, `.`; must not start with `.` or contain a slash. |
+| `-p` | `PREFIX` | prefix of the output file names. Letters, digits, `_`, `-`, `.`, at most 100 characters; must not start with `.` or contain a slash. |
 | `-n` | | dry run: check everything, print the plan on stdout, play nothing. |
 | `-R` | | real time: the simulator waits as a real board would. The default is virtual time (as fast as possible, with exact simulated times). |
 | `-L` | | live patching, in real time (it implies `-R`): keys typed in the terminal act on a patching pipette while the seal test runs (c touch the cell, s suction, b suction pulse, z zap, h holding 0/−70 mV, q stop), and the readout is one line rewritten after each pulse. `q` ends the run normally (exit status 0). Needs a terminal on standard input, `device = neuron`, voltage clamp (`-m vc`) and a patching pipette; see [16, tutorial L](16-neuron-tutorials.md#l-patching-a-cell-from-the-bath-to-whole-cell). |
@@ -82,8 +84,10 @@ in `sg` it is `--text`, while in LCG2 it is the record-only duration.
 | Status | Meaning |
 |:--|:--|
 | 0 | success |
-| 1 | an error before the run |
-| 2 | aborted (Ctrl-C, kill), or failed after the outputs were touched, or the outputs could not be put at rest |
+| 1 | an error before the run (also Ctrl-C while the stimulus is checked or `-n` builds the cells: nothing was played) |
+| 2 | aborted (Ctrl-C, `kill`, a hangup: the terminal closed or the ssh connection dropped), or failed after the outputs were touched, or the outputs could not be put at rest |
+
+Under `nohup` a hangup is ignored, as asked, and the run goes on.
 
 ## Examples
 

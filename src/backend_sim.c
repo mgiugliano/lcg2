@@ -82,12 +82,12 @@ static void note_state(Sim *s, const Config *cfg, const Drive *d, int64_t sample
     int k;
     for (k = 0; k < d->nao; k++) {
         int line = cfg->out[d->ao[k].out].index;
-        s->st.ao_state[line] = d->ao[k].v[sample];
+        s->st.ao_state[line] = drive_ao(d, k, sample);
         s->st.ao_known[line] = 1;
     }
     for (k = 0; k < d->ndig; k++) {
         int line = cfg->out[d->dig[k].out].index;
-        s->st.dig_state[line] = d->dig[k].b[sample];
+        s->st.dig_state[line] = drive_dig(d, k, sample);
         s->st.dig_known[line] = 1;
     }
 }
@@ -167,13 +167,12 @@ static int sim_play(Backend *be, Clock *clk, const Config *cfg, const Drive *d,
 
         for (k = 0; k < nin; k++) {
             const InCh *in = &cfg->in[act[k]];
-            const double *src = NULL;
             int64_t i;
-            int a;
+            int a, src = -1;
             for (a = 0; a < d->nao; a++)                       /* aoN is wired to aiN */
-                if (cfg->out[d->ao[a].out].index == in->index) src = d->ao[a].v;
+                if (cfg->out[d->ao[a].out].index == in->index) src = a;
             for (i = 0; i < count; i++) {
-                double v = (src ? src[first + i] : 0.0) + s->o.noise_sd * gaussian(&rng[k]);
+                double v = (src >= 0 ? drive_ao(d, src, first + i) : 0.0) + s->o.noise_sd * gaussian(&rng[k]);
                 if (v > in->range)       { v = in->range;  res->overrange[k]++; }
                 else if (v < -in->range) { v = -in->range; res->overrange[k]++; }
                 buf[k][i] = v;

@@ -41,6 +41,9 @@
 #include "config.h"
 #include "lcg2.h"
 
+/* The longest -p prefix: with the time stamp it must fit the names of the run (archive.h). */
+#define CLI_MAX_PREFIX 100
+
 typedef struct {
     int         help;            /* -h: print the help and stop            */
     const char *config;          /* -c FILE (NULL: lcg2.ini)               */
@@ -54,7 +57,7 @@ typedef struct {
     int         has_duration;    /* -t given                               */
     int64_t     duration_ps;     /*   its value in picoseconds             */
     const char *text;            /* -e TEXT                                */
-    const char *prefix;          /* -p PREFIX                              */
+    const char *prefix;          /* -p PREFIX (at most CLI_MAX_PREFIX characters) */
     const char *stimulus;        /* the stimulus file                      */
     int         dry, quiet, verbose;
     int         realtime;        /* -R: follow the clock, not the virtual one */

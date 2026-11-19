@@ -116,7 +116,8 @@ char *archive_quote_args(int argc, char **argv);
 typedef struct { char *s; size_t n, cap; int failed; } StrBuf;
 void sb_add(StrBuf *b, const char *text);
 void sb_addf(StrBuf *b, const char *fmt, ...);
-void sb_json(StrBuf *b, const char *text);       /* a quoted, escaped JSON string */
+void sb_json(StrBuf *b, const char *text);       /* a quoted, escaped JSON string; a byte that is not
+                                                    part of UTF-8 is written as \u00XX (as Latin-1) */
 void sb_free(StrBuf *b);
 
 #endif /* LCG2_ARCHIVE_H */

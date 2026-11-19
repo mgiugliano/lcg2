@@ -366,6 +366,13 @@ def test_loopback(tmp):
 # --------------------------------------------------------------------------
 # 5. The real program: output streams, exit status, refusals
 # --------------------------------------------------------------------------
+def no_sim_python(**extra):
+    """The environment without LCG2_SIM_PYTHON (which overrides sim_python in the configuration)."""
+    env = {k: v for k, v in os.environ.items() if k != "LCG2_SIM_PYTHON"}
+    env.update(extra)
+    return env
+
+
 def lcg2(args, **kw):
     kw.setdefault("timeout", 120)
     return subprocess.run([LCG2] + A(args), cwd=WORK, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -402,7 +409,7 @@ def test_program(tmp):
 
     neu = write(tmp, "neuron.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = neuron\nsim_python = /no/such/python")
                 + "\n[cell P1]\n[cell P2]\n")
-    r = lcg2(["-c", neu, "examples/step.sg"])
+    r = lcg2(["-c", neu, "examples/step.sg"], env=no_sim_python())
     check("device = neuron with no usable Python is refused with a clear message (exit 1)", r.returncode == 1 and
           "cannot run /no/such/python" in r.stderr, r.stderr)
     dev = write(tmp, "dev.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = Dev1"))
@@ -438,7 +445,7 @@ def read_until(proc, needle, timeout=20):
 def test_signals(tmp):
     waiting = protocol(tmp, "wait.sg", "period 5s\nstart on trigger", repeat=3)
 
-    for name, sig in (("SIGINT", signal.SIGINT), ("SIGTERM", signal.SIGTERM)):
+    for name, sig in (("SIGINT", signal.SIGINT), ("SIGTERM", signal.SIGTERM), ("SIGHUP", signal.SIGHUP)):
         p = subprocess.Popen([LCG2] + A(["-c", CFG, "-r", "20kHz", waiting]), cwd=WORK, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         seen = read_until(p, "press Enter")
@@ -456,6 +463,24 @@ def test_signals(tmp):
               "aborted after 0 of 3 trial(s): outputs at rest" in seen + rest, seen + rest)
         check("%s: nothing on stdout" % name, out == "")
         p.stdin.close()
+
+    # under nohup a hangup is ignored, as the user asked: the run goes on
+    def ignore_hup():
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    p = subprocess.Popen([LCG2] + A(["-c", CFG, "-r", "20kHz", waiting]), cwd=WORK, stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=ignore_hup)
+    seen = read_until(p, "press Enter")
+    p.send_signal(signal.SIGHUP)
+    time.sleep(0.5)
+    alive = p.poll() is None
+    p.send_signal(signal.SIGINT)
+    try:
+        p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+    check("a SIGHUP that is ignored (nohup) stays ignored: the run goes on", alive and p.returncode == 2,
+          "alive=%s rc=%s" % (alive, p.returncode))
+    p.stdin.close()
 
     # after a REAL signal, the outputs are really at rest: measured, not just announced.
     cfg = write(tmp, "restsig.ini", open(os.path.join(ROOT, CFG)).read().replace("[out P2]\nline = ao1", "[out P2]\nline = ao1\nrest = 100"))
@@ -527,6 +552,51 @@ def test_signals(tmp):
 
 
 # --------------------------------------------------------------------------
+# 7. Ctrl-C while the NEURON adapter starts: it is stopped, with what it started
+# --------------------------------------------------------------------------
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_adapter_stop(tmp):
+    # A stand-in for the adapter: it starts a process of its own (as the adapter starts nrnivmodl), says
+    # nothing, and never ends by itself.
+    fake = write(tmp, "fake_python.sh", "#!/bin/sh\nsleep 300 &\necho $! > \"$LCG2_TEST_PIDFILE\"\nexec sleep 300\n")
+    os.chmod(fake, 0o755)
+    cfg = write(tmp, "fake.ini", open(os.path.join(ROOT, CFG)).read().replace("device = sim", "device = neuron\nsim_python = " + fake)
+                + "\n[cell P1]\n[cell P2]\n")
+    for label, extra in (("-n (the dry run builds the cells)", ["-n"]), ("a run", [])):
+        tmpdir = os.path.join(tmp, "tmpdir%d" % len(extra))
+        os.makedirs(tmpdir)
+        pidfile = os.path.join(tmp, "child%d.pid" % len(extra))
+        p = subprocess.Popen([LCG2] + extra + A(["-c", cfg, "examples/step.sg"]), cwd=WORK, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, env=no_sim_python(TMPDIR=tmpdir, LCG2_TEST_PIDFILE=pidfile))
+        end = time.time() + 10
+        while time.time() < end and not (os.path.exists(pidfile) and open(pidfile).read().strip()):
+            time.sleep(0.05)
+        child = int(open(pidfile).read()) if os.path.exists(pidfile) else 0
+        time.sleep(0.2)
+        p.send_signal(signal.SIGINT)
+        try:
+            p.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            p.kill()
+        err = p.stderr.read().decode("utf-8", "replace")
+        time.sleep(0.3)
+        check("Ctrl-C while the adapter starts, %s: exit status 1 and 'interrupted'" % label,
+              p.returncode == 1 and "interrupted" in err, "rc=%s %s" % (p.returncode, err))
+        check("...the adapter's own child process was stopped with it", child > 0 and not alive(child), child)
+        if extra:
+            check("...the dry run's temporary log was deleted", os.listdir(tmpdir) == [], os.listdir(tmpdir))
+        if child > 0 and alive(child):
+            os.kill(child, signal.SIGKILL)
+
+
+# --------------------------------------------------------------------------
 def main():
     for tool in (ET, LCG2):
         if not os.path.exists(tool):
@@ -534,7 +604,7 @@ def main():
             return 1
     tmp = tempfile.mkdtemp()
     try:
-        for fn in (test_timing, test_trigger, test_rest, test_loopback, test_program, test_signals):
+        for fn in (test_timing, test_trigger, test_rest, test_loopback, test_program, test_signals, test_adapter_stop):
             sub = os.path.join(tmp, fn.__name__)
             os.makedirs(sub)
             fn(sub)

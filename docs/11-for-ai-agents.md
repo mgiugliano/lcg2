@@ -113,13 +113,14 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
 
 ## What M4 does (built; the design is in `SPEC.md` 3, 4d and 7)
 
-1. `record.c` is a `Sink` that writes one HDF5 file per run (layout in `docs/13-data-format.md`), flushed
-   after every trial, with the `incomplete` flag set at the start of a trial and cleared when it ends complete.
+1. `record.c` is a `Sink` that writes one HDF5 file per run (layout in `docs/13-data-format.md`), inputs and
+   command block by block, flushed after every trial and about once a second within one (while the disk has
+   room: SPEC 4h), with the `incomplete` flag set at the start of a trial and cleared when it ends complete.
 2. `archive.c` makes the hidden folder (atomic `mkdir`), the line-by-line log and `SHA256SUMS`; `sha256.c` is
    the own SHA-256; `run.c` orders it all (free-space check, folder, engine, close, digests) and sets the
    exit status (2 if the integrity record or the final rest fails).
 3. `session.c` holds what `main.c` used to do (command line, configuration, checks); `main.c` is thin.
-4. Tests: `tests/test_record.py` (100 checks, h5py), `examples/read_run.py` is the reference reader.
+4. Tests: `tests/test_record.py` (104 checks, h5py), `examples/read_run.py` is the reference reader.
 
 ## What M3b does (built; the design is in `SPEC.md` 4e and 11, the user's manual is `docs/14-neuron-models.md`)
 
@@ -131,7 +132,7 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
    compiled into a cache), electrodes by unit, synapses, and steps them. It keeps the protocol on a private copy of
    fd 1 and sends fd 1 to the log: NEURON prints to stdout.
 3. `-n` runs the adapter in `check` mode (`neuron_check`), so model mistakes show before a run.
-4. Tests: `tests/test_neuron.py` (176 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
+4. Tests: `tests/test_neuron.py` (184 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
    `examples/student_kit/` is the package for students and is tested too.
 
 **The electrode model** (`CCElectrode`, `VCElectrode`, `Noise` in `lcg2_neuron.py`) is used only when a cell has electrode or

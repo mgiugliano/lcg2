@@ -170,14 +170,25 @@ static int die(Nrn *s, Err *err, const char *what)
     int status = platform_child_stop(s->pid, s->to, s->from, 500);
     s->pid = 0; s->to = s->from = -1; s->up = 0;
     log_tail(s->errpath, tail, sizeof tail);
-    return err_set(err, "the NEURON adapter %s (exit status %d)%s%s; its messages are in %s", what, status,
-                   tail[0] ? ": " : "", tail, s->errpath);
+    /* the path first: a long message is cut at its end, and the path is what the reader needs */
+    return err_set(err, "the NEURON adapter %s (exit status %d; its messages are in %s)%s%s", what, status,
+                   s->errpath, tail[0] ? ": " : "", tail);
+}
+
+/* Write to the adapter.  An abort while it is not reading (its pipe is full) leaves the conversation broken:
+ * s->broken is set and -1 returned, and the caller ends the trial as aborted. */
+static int send_bytes(Nrn *s, const void *buf, size_t n, Err *err)
+{
+    int r = platform_write_all(s->to, buf, n, (int64_t)s->o.block_timeout_s * 1000);
+    if (r == -3) { s->broken = 1; return err_set(err, "interrupted"); }
+    if (r == -2) return die(s, err, "stopped reading its input (timed out)");
+    if (r < 0) return die(s, err, "stopped (its pipe is closed)");
+    return 0;
 }
 
 static int send_line(Nrn *s, const char *line, Err *err)
 {
-    if (platform_write_all(s->to, line, strlen(line)) < 0 || platform_write_all(s->to, "\n", 1) < 0)
-        return die(s, err, "stopped (its pipe is closed)");
+    if (send_bytes(s, line, strlen(line), err) < 0 || send_bytes(s, "\n", 1, err) < 0) return -1;
     return 0;
 }
 
@@ -263,9 +274,9 @@ static int start_adapter(Nrn *s, const Config *cfg, int check, Err *err)
         return err_set(err, "%s", msg);
     memset(&b, 0, sizeof b);
     if (build_init(s, cfg, check, &b) < 0) { sb_free(&b); return err_set(err, "out of memory"); }
-    if (send_line(s, b.s, err) < 0) { sb_free(&b); return -1; }
+    r = send_line(s, b.s, err) < 0 ? -1 : read_reply(s, s->o.init_timeout_s, &rep, err);
     sb_free(&b);
-    r = read_reply(s, s->o.init_timeout_s, &rep, err);
+    if (r < 0 && s->broken) r = 1;                    /* an abort while it was not reading */
     if (r == 1) {                                     /* Ctrl-C while the model was being built */
         platform_child_stop(s->pid, s->to, s->from, 500);
         s->pid = 0; s->to = s->from = -1;
@@ -343,7 +354,7 @@ static int send_advance(Nrn *s, int64_t dur_ns, Err *err)
     for (j = 0; j < s->nout; j++)
         n += snprintf(line + n, sizeof line - (size_t)n, "%s%.17g", j ? "," : "", s->rest_cmd[j]);
     snprintf(line + n, sizeof line - (size_t)n, "]}");
-    if (send_line(s, line, err) < 0) return -1;
+    if (send_line(s, line, err) < 0) return s->broken ? 1 : -1;
     r = read_reply(s, s->o.block_timeout_s + (int)(dur_ns / 1000000000LL), &rep, err);
     if (r == 0) json_free(rep);
     if (r == 1) s->broken = 1;
@@ -369,7 +380,7 @@ static int nrn_play(Backend *be, Clock *clk, const Config *cfg, const Drive *d,
     for (j = 0; j < s->nout; j++) src[j] = find_ao(d, s->out[j].idx);
 
     cmd = (double *)malloc((size_t)(nb * (s->nout ? s->nout : 1)) * sizeof(double));
-    meas = (double *)malloc((size_t)(nb * s->nin) * sizeof(double));
+    meas = (double *)malloc((size_t)(nb * (s->nin ? s->nin : 1)) * sizeof(double));   /* never malloc(0): it may be NULL */
     for (k = 0; k < s->nin; k++) volts[k] = (double *)malloc((size_t)nb * sizeof(double));
     if (!cmd || !meas) { rc = err_set(err, "out of memory"); goto done; }
     for (k = 0; k < s->nin; k++) if (!volts[k]) { rc = err_set(err, "out of memory"); goto done; }
@@ -381,7 +392,7 @@ static int nrn_play(Backend *be, Clock *clk, const Config *cfg, const Drive *d,
         if (r != 0) { rc = r; if (r == 1) res->incomplete = 1; goto done; }
     }
     snprintf(line, sizeof line, "{\"op\":\"trial\",\"rate_p\":%lld,\"rate_q\":%lld}", (long long)rate_p, (long long)rate_q);
-    if (send_line(s, line, err) < 0) { rc = -1; goto done; }
+    if (send_line(s, line, err) < 0) { rc = s->broken ? 1 : -1; if (s->broken) res->incomplete = 1; goto done; }
     {
         int r = read_reply(s, s->o.block_timeout_s, &rep, err);
         if (r == 1) { s->broken = 1; res->incomplete = 1; rc = 1; goto done; }
@@ -402,11 +413,13 @@ static int nrn_play(Backend *be, Clock *clk, const Config *cfg, const Drive *d,
         for (j = 0; j < s->nout; j++)
             for (i = 0; i < count; i++)
                 cmd[j * count + i] = src[j] >= 0
-                    ? volts_to_cmd(&cfg->out[s->out[j].idx], m, &s->out[j], d->ao[src[j]].v[first + i]) : 0.0;
+                    ? volts_to_cmd(&cfg->out[s->out[j].idx], m, &s->out[j], drive_ao(d, src[j], first + i)) : 0.0;
         snprintf(line, sizeof line, "{\"op\":\"block\",\"count\":%lld}", (long long)count);
-        if (send_line(s, line, err) < 0) { rc = -1; goto done; }
-        if (s->nout && platform_write_all(s->to, cmd, (size_t)(count * s->nout) * sizeof(double)) < 0) {
-            rc = die(s, err, "stopped (its pipe is closed)"); goto done;
+        if (send_line(s, line, err) < 0 ||
+            (s->nout && send_bytes(s, cmd, (size_t)(count * s->nout) * sizeof(double), err) < 0)) {
+            rc = s->broken ? 1 : -1;
+            if (s->broken) res->incomplete = 1;
+            goto done;
         }
         r = read_reply(s, s->o.block_timeout_s, &rep, err);
         if (r == 1) { s->broken = 1; res->incomplete = 1; rc = 1; goto done; }
@@ -474,7 +487,7 @@ static void nrn_close(Backend *be)
     Nrn *s = (Nrn *)be->impl;
     if (s->up && s->to >= 0) {
         const char *q = "{\"op\":\"quit\"}\n";
-        platform_write_all(s->to, q, strlen(q));
+        platform_write_all(s->to, q, strlen(q), 1000);
     }
     if (s->pid) platform_child_stop(s->pid, s->to, s->from, 3000);
     s->pid = 0; s->to = s->from = -1; s->up = 0;

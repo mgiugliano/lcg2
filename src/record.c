@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hdf5.h>
+#include "platform.h"
 #include "record.h"
 
 /*
@@ -51,8 +52,7 @@
 #define LCG2_LIBVER_LOW H5F_LIBVER_V18
 #endif
 
-#define CHUNK_SAMPLES 8192               /* a fixed chunk: not tied to the block size */
-#define WRITE_SLICE   65536              /* samples written at a time for a command    */
+#define FLUSH_SECONDS 1.0                /* during a trial, the file is flushed after about this much data */
 
 struct Recorder {
     hid_t        file;
@@ -60,10 +60,16 @@ struct Recorder {
     const Config *cfg;
     int          trials;
     /* the trial being written */
-    hid_t        group, ai_group;
+    hid_t        group, ai_group, ao_group;
     hid_t        ai[CFG_MAX_IN];
     int          nai;
+    hid_t        ao[CFG_MAX_OUT];        /* the commands, written block by block as they are played */
+    int          nao;
     int64_t      n_planned;
+    int64_t      flush_every, since_flush;   /* samples */
+    int          flushes_skipped;        /* flushes in the middle of a trial left out: too little room */
+    double      *scratch;                /* one block of a command, in its output's unit */
+    int64_t      scratch_n;
     int          open_trial;
     const TrialInfo *ti;                 /* valid between begin and end */
     int          failed;
@@ -217,7 +223,6 @@ int record_open(Recorder **out, const RecorderInit *in, Err *err)
     H5Eset_auto2(H5E_DEFAULT, NULL, NULL);           /* HDF5 must not print on its own */
     snprintf(r->path, sizeof r->path, "%s", in->path);
     r->cfg = in->cfg;
-    r->group = r->ai_group = -1;
 
     /* The file format is capped at HDF5 1.10: the library that writes it may be newer (2.x
      * here), but the readers of the owner (Ubuntu 22.04 ships 1.10.7, MATLAB and h5py bundle
@@ -229,6 +234,7 @@ int record_open(Recorder **out, const RecorderInit *in, Err *err)
         free(r);
         return -1;
     }
+    r->group = r->ai_group = r->ao_group = -1;
     r->file = H5Fcreate(in->path, H5F_ACC_EXCL, H5P_DEFAULT, fapl);          /* it must not exist */
     if (r->file < 0) {
         hfail(err, in->path, "create", "the file");      /* before closing fapl: that clears HDF5's error stack */
@@ -262,6 +268,7 @@ int record_open(Recorder **out, const RecorderInit *in, Err *err)
 }
 
 int record_trials(const Recorder *r) { return r->trials; }
+int record_flushes_skipped(const Recorder *r) { return r->flushes_skipped; }
 
 /* Close whatever belongs to the trial in hand. */
 static void trial_close(Recorder *r)
@@ -269,9 +276,12 @@ static void trial_close(Recorder *r)
     int k;
     for (k = 0; k < r->nai; k++) if (r->ai[k] >= 0) H5Dclose(r->ai[k]);
     r->nai = 0;
+    for (k = 0; k < r->nao; k++) if (r->ao[k] >= 0) H5Dclose(r->ao[k]);
+    r->nao = 0;
+    if (r->ao_group >= 0) H5Gclose(r->ao_group);
     if (r->ai_group >= 0) H5Gclose(r->ai_group);
     if (r->group >= 0) H5Gclose(r->group);
-    r->ai_group = r->group = -1;
+    r->ao_group = r->ai_group = r->group = -1;
     r->open_trial = 0;
     r->ti = NULL;
 }
@@ -286,6 +296,7 @@ int record_close(Recorder *r, Err *err)
     if (rc == 0 && H5Fget_obj_count(r->file, H5F_OBJ_ALL) != 1)
         rc = err_set(err, "internal error: HDF5 objects were left open in '%s'", r->path);
     if (H5Fclose(r->file) < 0 && rc == 0) rc = hfail(err, r->path, "close", "the file");
+    free(r->scratch);
     free(r);
     return rc;
 }
@@ -332,45 +343,55 @@ static int write_markers(hid_t group, const Trial *t)
     return ok ? 0 : -1;
 }
 
-/* The command played on one output, in its own unit. */
-static int write_command(Recorder *r, hid_t ao, const TrialInfo *ti, int k)
+/* An empty 1-D dataset of unlimited length, chunked, that grows block by block.  The chunk is never longer than
+ * the trial: HDF5 stores the last chunk whole, so a short trial in a long chunk would take the whole chunk. */
+static hid_t growing(hid_t loc, const char *name, hid_t type, int64_t n)
+{
+    hsize_t d0 = 0, dmax = H5S_UNLIMITED, chunk = n < RECORD_CHUNK_SAMPLES ? (hsize_t)n : RECORD_CHUNK_SAMPLES;
+    hid_t space = H5Screate_simple(1, &d0, &dmax), dcpl = H5Pcreate(H5P_DATASET_CREATE), d = -1;
+    if (space >= 0 && dcpl >= 0 && H5Pset_chunk(dcpl, 1, &chunk) >= 0)
+        d = H5Dcreate2(loc, name, type, space, H5P_DEFAULT, dcpl, H5P_DEFAULT);
+    if (space >= 0) H5Sclose(space);
+    if (dcpl >= 0) H5Pclose(dcpl);
+    return d;
+}
+
+/* The dataset of the command on one output (empty: it grows as the command is played). */
+static int open_command(Recorder *r, const TrialInfo *ti, int k)
 {
     const OutCh *oc = &r->cfg->out[ti->cmd[k].out];
-    int m = MODE_INDEX(r->cfg->mode);
-    hsize_t n = (hsize_t)ti->n, chunk = n < WRITE_SLICE ? n : WRITE_SLICE;
-    hid_t space = H5Screate_simple(1, &n, NULL), d;
-    int ok = 1;
-    int64_t first;
-    double *buf = NULL;
-    unsigned char *bytes = NULL;
-
-    if (space < 0) return -1;
-    d = H5Dcreate2(ao, ti->cmd[k].out_name, ti->cmd[k].digital ? H5T_STD_U8LE : H5T_IEEE_F64LE, space,
-                   H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    H5Sclose(space);
+    int m = MODE_INDEX(r->cfg->mode), ok;
+    hid_t d = growing(r->ao_group, ti->cmd[k].out_name, ti->cmd[k].digital ? H5T_STD_U8LE : H5T_IEEE_F64LE, ti->n);
     if (d < 0) return -1;
-    if (ti->cmd[k].digital) bytes = (unsigned char *)malloc((size_t)chunk);
-    else buf = (double *)malloc((size_t)chunk * sizeof(double));
-    if (!buf && !bytes) { H5Dclose(d); return -1; }
-    for (first = 0; first < ti->n && ok; first += (int64_t)chunk) {
-        int64_t cnt = ti->n - first < (int64_t)chunk ? ti->n - first : (int64_t)chunk, i;
-        if (ti->cmd[k].digital) {
-            for (i = 0; i < cnt; i++) bytes[i] = ti->cmd[k].x[first + i] != 0.0;
-            ok = write_slice(d, H5T_NATIVE_UINT8, first, cnt, bytes) == 0;
-        } else {
-            for (i = 0; i < cnt; i++) buf[i] = ti->cmd[k].x[first + i] * ti->cmd[k].scale;
-            ok = write_slice(d, H5T_NATIVE_DOUBLE, first, cnt, buf) == 0;
-        }
-    }
-    free(buf); free(bytes);
-    if (ok) {
-        ok = attr_str(d, "unit", ti->cmd[k].unit) == 0 && attr_str(d, "line", oc->line) == 0 &&
-             attr_i32(d, "digital", oc->digital) == 0 && attr_f64(d, "rest", ti->cmd[k].rest) == 0;
-        if (ok && !oc->digital)
-            ok = attr_f64(d, "gain", oc->gain[m]) == 0 && attr_f64(d, "limit_v", oc->has_limit ? oc->limit : 10.0) == 0;
-    }
-    H5Dclose(d);
+    r->ao[k] = d;
+    r->nao = k + 1;
+    ok = attr_str(d, "unit", ti->cmd[k].unit) == 0 && attr_str(d, "line", oc->line) == 0 &&
+         attr_i32(d, "digital", oc->digital) == 0 && attr_f64(d, "rest", ti->cmd[k].rest) == 0;
+    if (ok && !oc->digital)
+        ok = attr_f64(d, "gain", oc->gain[m]) == 0 && attr_f64(d, "limit_v", oc->has_limit ? oc->limit : 10.0) == 0;
     return ok ? 0 : -1;
+}
+
+/* Samples first .. first+count-1 of the command on output k, in its own unit (digital: 0/1). */
+static int write_command(Recorder *r, int k, int64_t first, int64_t count)
+{
+    const TrialInfo *ti = r->ti;
+    hsize_t newdim = (hsize_t)(first + count);
+    int64_t i;
+    if (count > r->scratch_n) {
+        double *g = (double *)realloc(r->scratch, (size_t)count * sizeof(double));
+        if (!g) return -1;
+        r->scratch = g;
+        r->scratch_n = count;
+    }
+    if (H5Dset_extent(r->ao[k], &newdim) < 0) return -1;
+    if (ti->cmd[k].digital) {
+        unsigned char *bytes = (unsigned char *)r->scratch;
+        for (i = 0; i < count; i++) bytes[i] = ti->cmd[k].x[first + i] != 0.0;
+        return write_slice(r->ao[k], H5T_NATIVE_UINT8, first, count, bytes);
+    }
+    for (i = 0; i < count; i++) r->scratch[i] = ti->cmd[k].x[first + i] * ti->cmd[k].scale;
+    return write_slice(r->ao[k], H5T_NATIVE_DOUBLE, first, count, r->scratch);
 }
 
 static int sink_begin(void *user, const TrialInfo *ti, Err *err)
@@ -406,18 +427,9 @@ static int sink_begin(void *user, const TrialInfo *ti, Err *err)
     r->ai_group = H5Gcreate2(r->group, "ai", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     if (r->ai_group < 0) return hfail(err, r->path, "create the group", "ai");
     for (k = 0; k < ti->nin; k++) {
-        hsize_t d0 = 0, dmax = H5S_UNLIMITED, chunk = CHUNK_SAMPLES;
-        hid_t space = H5Screate_simple(1, &d0, &dmax), dcpl = H5Pcreate(H5P_DATASET_CREATE);
         int ok;
         ic = &r->cfg->in[ti->ai[k].in];
-        if (space < 0 || dcpl < 0 || H5Pset_chunk(dcpl, 1, &chunk) < 0) {
-            if (space >= 0) H5Sclose(space);
-            if (dcpl >= 0) H5Pclose(dcpl);
-            return hfail(err, r->path, "prepare the dataset", ti->ai[k].name);
-        }
-        r->ai[k] = H5Dcreate2(r->ai_group, ti->ai[k].name, H5T_IEEE_F64LE, space, H5P_DEFAULT, dcpl, H5P_DEFAULT);
-        H5Sclose(space);
-        H5Pclose(dcpl);
+        r->ai[k] = growing(r->ai_group, ti->ai[k].name, H5T_IEEE_F64LE, ti->n);
         if (r->ai[k] < 0) return hfail(err, r->path, "create the dataset", ti->ai[k].name);
         r->nai = k + 1;
         ok = attr_str(r->ai[k], "unit", ti->ai[k].unit) == 0 && attr_str(r->ai[k], "line", ic->line) == 0 &&
@@ -428,21 +440,21 @@ static int sink_begin(void *user, const TrialInfo *ti, Err *err)
         if (!ok) return hfail(err, r->path, "write the attributes of the dataset", ti->ai[k].name);
     }
 
-    /* the command that is being played, if the stimulus names any output */
+    /* the command, if the stimulus names any output: empty now, it grows with the inputs as it is played */
     if (ti->ncmd > 0) {
-        hid_t ao = H5Gcreate2(r->group, "ao", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        if (ao < 0) return hfail(err, r->path, "create the group", "ao");
+        r->ao_group = H5Gcreate2(r->group, "ao", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        if (r->ao_group < 0) return hfail(err, r->path, "create the group", "ao");
         for (k = 0; k < ti->ncmd; k++)
-            if (write_command(r, ao, ti, k) < 0) {
-                H5Gclose(ao);
-                return hfail(err, r->path, "write the command", ti->cmd[k].out_name);
-            }
-        H5Gclose(ao);
+            if (open_command(r, ti, k) < 0) return hfail(err, r->path, "create the command", ti->cmd[k].out_name);
     }
     if (ti->trial && ti->trial->nmark > 0 && write_markers(r->group, ti->trial) < 0)
         return hfail(err, r->path, "write the markers", gname);
     if (ti->trial && ti->trial->info && dataset_text(r->group, "info", ti->trial->info) < 0)
         return hfail(err, r->path, "write the record of the trial", gname);
+    /* about once a second of data, so that a killed run keeps most of the trial in hand */
+    r->flush_every = (int64_t)(FLUSH_SECONDS * (double)ti->rate_p / (double)ti->rate_q);
+    if (r->flush_every < 1) r->flush_every = 1;
+    r->since_flush = 0;
     return 0;
 }
 
@@ -451,9 +463,25 @@ static int sink_block(void *user, int64_t first, int64_t count, const double *co
     Recorder *r = (Recorder *)user;
     int k;
     hsize_t newdim = (hsize_t)(first + count);
+    if (first + count > r->n_planned) return err_set(err, "internal error: more samples than the trial has");
     for (k = 0; k < r->nai; k++) {
         if (H5Dset_extent(r->ai[k], &newdim) < 0 || write_slice(r->ai[k], H5T_NATIVE_DOUBLE, first, count, x[k]) < 0)
             return hfail(err, r->path, "write inputs to the dataset", r->ti->ai[k].name);
+    }
+    for (k = 0; k < r->nao; k++)
+        if (write_command(r, k, first, count) < 0)
+            return hfail(err, r->path, "write the command", r->ti->cmd[k].out_name);
+    /* A flush that fails half way (the disk is full) can leave a file that no longer opens: measured, 5 of 12
+     * files with a size limit, against none when the file is flushed only between trials.  So a trial is
+     * flushed in its middle only while the disk has room for several flushes' worth of data; when it runs
+     * short, the trial is flushed at its end only, as before. */
+    r->since_flush += count;
+    if (r->since_flush >= r->flush_every) {
+        int64_t room = platform_file_room(r->path);
+        double need = 4.0 * (double)r->flush_every * (double)(r->nai + r->nao) * 8.0 + 1048576.0;
+        r->since_flush = 0;
+        if (room >= 0 && (double)room < need) r->flushes_skipped++;
+        else if (H5Fflush(r->file, H5F_SCOPE_GLOBAL) < 0) return hfail(err, r->path, "flush", "the file");
     }
     return 0;
 }

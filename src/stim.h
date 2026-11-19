@@ -114,7 +114,7 @@ typedef struct {
     char      *text;             /* owned                                    */
     char       source[300];      /* "examples/pair.sg" or "the -e text"      */
     char       unit[16];         /* waveform: the unit handed to StimGen     */
-    char       rate_arg[48];     /* the rate text handed to StimGen          */
+    char       rate_arg[UNITS_RATE_TEXT_MAX + 1];  /* the rate text handed to StimGen */
     char       seed_arg[24];     /* a plain stimulus: its fixed seed         */
     int        seed_source;      /* SEED_DRAWN, SEED_GIVEN or SEED_STATED    */
     int        n;                /* trials                                   */
@@ -183,17 +183,18 @@ int stim_check(const Trial *t, const Map *map, const Config *cfg, double *peak_v
  * (before calibration), so that the caller can report how close to its limit
  * a stimulus comes. */
 
-/* The signals for the backend: one array per output in use, each of the
+/* The signals for the backend: one entry per output in use, each of the
  * trial's n samples followed by STIM_REST_PAD rest samples.  Named channels
  * carry the stimulus (analog: volts, with the calibration applied; digital:
- * 0 or 1); outputs the stimulus does not name hold their rest value. */
+ * 0 or 1); outputs the stimulus does not name hold their rest value, and have
+ * no array (v or b is NULL): read the samples with drive_ao() and drive_dig(). */
 typedef struct {
     int64_t n;                   /* samples of the trial, without the rest   */
     int     pad;                 /* STIM_REST_PAD                            */
     int     nao;
-    struct { int out; double *v; } ao[4];
+    struct { int out; double *v; } ao[4];          /* v: NULL if constant    */
     int     ndig;
-    struct { int out; unsigned char *b; } dig[8];
+    struct { int out; unsigned char *b; } dig[8];  /* b: NULL if constant    */
     /* The state every output ends on, which is also the state it rests at
      * between trials and after the run: the value of the rest samples. */
     double        ao_rest[4];            /* volts, for ao[k]   */
@@ -207,6 +208,14 @@ int stim_drive(const Trial *t, const Map *map, const Config *cfg, Drive *d, Err 
 int stim_drive_idle(const Config *cfg, int64_t n, Drive *d, Err *err);
 
 void drive_free(Drive *d);
+
+/* Sample i (0 <= i < n + pad) of analog output k, in volts, and of digital line k (0 or 1). */
+double        drive_ao(const Drive *d, int k, int64_t i);
+unsigned char drive_dig(const Drive *d, int k, int64_t i);
+
+/* The same drive without its samples: the outputs, and the rest values they end on.  What the engine keeps
+ * of a trial once it has been played. */
+void drive_rest_only(const Drive *d, Drive *rest);
 
 /* The exact fraction p/q of a rate that StimGen reports as a double.  StimGen's
  * rates are decimal (q a power of ten up to 10^6); returns -1 for anything

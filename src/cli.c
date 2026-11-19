@@ -86,7 +86,7 @@ static int valid_seed(const char *s)
  * leading dot (the run folder adds its own), only plain characters. */
 static int valid_prefix(const char *s)
 {
-    if (!*s || *s == '.') return 0;
+    if (!*s || *s == '.' || strlen(s) > CLI_MAX_PREFIX) return 0;
     return strspn(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
                      "0123456789_.-") == strlen(s);
 }
@@ -136,6 +136,10 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
             val = argv[++i];
             if (!*val && opt != 'e')
                 return err_set(err, "option -%c has an empty value", opt);
+            /* "-p -n" would take -n as the prefix and make a real run: a value that is exactly one of
+             * our own options is a missing value, not a value. */
+            if (val[0] == '-' && val[1] && !val[2] && strchr("cPmrsTtepnRLqvh", val[1]))
+                return err_set(err, "option -%c needs a value, but the next word is the option %s", opt, val);
             switch (opt) {
             case 'c': o->config = val; break;
             case 'P': o->profile = val; break;
@@ -150,6 +154,9 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
                 if (units_parse_rate(val, &o->rate_p, &o->rate_q) < 0)
                     return err_set(err, "-r: '%s' is not a rate (examples: 20kHz, "
                                    "10000, 2.5Hz)", val);
+                if (strlen(val) > UNITS_RATE_TEXT_MAX)
+                    return err_set(err, "-r: the rate is written with more than %d characters; "
+                                   "write it shorter (20kHz)", UNITS_RATE_TEXT_MAX);
                 o->has_rate = 1;
                 o->rate_text = val;
                 break;
@@ -168,8 +175,8 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
             case 'p':
                 if (!valid_prefix(val))
                     return err_set(err, "-p: the prefix may contain only letters, "
-                                   "digits, '_', '-' and '.', and must not start "
-                                   "with '.' (got '%s')", val);
+                                   "digits, '_', '-' and '.', must not start "
+                                   "with '.', and has at most %d characters (got '%s')", CLI_MAX_PREFIX, val);
                 o->prefix = val;
                 break;
             }

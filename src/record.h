@@ -61,10 +61,14 @@
  * are idle and have no dataset (their rest value is in the configuration).
  *
  * A TRIAL IS MARKED incomplete = 1 when it begins and set to 0 only when it ends
- * complete.  After an abort the file is closed in the normal way, the running
- * trial is kept with the samples it had, and the mark stays 1.  The file is
- * flushed after every trial: after a kill -9 the completed trials are normally
- * readable (HDF5 does not promise more).
+ * complete.  The inputs AND the command grow block by block as the trial is
+ * played, so after an abort the file is closed in the normal way, the running
+ * trial is kept with the samples it had (ai and ao the same length: the command
+ * that was played), and the mark stays 1.  The file is flushed after every trial
+ * and, while there is room on the disk, about once a second of data in the
+ * middle of a trial: after a kill -9 the completed trials are normally readable,
+ * and so is the trial in hand up to its last flush (HDF5 does not promise more;
+ * measured in docs/13-data-format.md).
  *
  * HDF5 never prints on its own here: its error reporting is switched off, and every
  * failure comes back as an Err that names the operation, the object and the file.
@@ -77,6 +81,11 @@
 #include "lcg2.h"
 
 typedef struct Recorder Recorder;
+
+/* The inputs and the commands are stored in chunks of this many samples, or of the trial's length if it is
+ * shorter: the last chunk of a dataset is stored whole, so a dataset can take up to this many samples more
+ * than it holds, and only if its trial is longer than one chunk. */
+#define RECORD_CHUNK_SAMPLES 8192
 
 typedef struct {
     const char   *path;                  /* the data file: created, and it must not exist */
@@ -99,6 +108,9 @@ void record_sink(Recorder *r, Sink *sink);
 
 /* How many trials were begun. */
 int record_trials(const Recorder *r);
+
+/* How many flushes in the middle of a trial were left out because the disk was nearly full. */
+int record_flushes_skipped(const Recorder *r);
 
 /* Flush and close.  Always frees the Recorder.  Returns 0, or -1 if something could
  * not be written, or if an HDF5 object was left open. */

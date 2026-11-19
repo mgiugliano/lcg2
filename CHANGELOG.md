@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Fixed: a crash in a long trial lost the whole trial.** The data file is now flushed about once a second of data
+  during a trial (while the disk has room for more), not only after it: a `kill -9` keeps the trial up to its last second.
+- **Changed: the command (`ao/<name>`) is written block by block as it is played**, like the inputs. A trial no longer waits
+  to write its whole command after its trigger, and after an abort `ao` holds what was played, as long as the inputs.
+- **Fixed: short trials took far more disk than their data.** A chunk is now never longer than its trial: 100 seal-test
+  pulses of 20 ms at 100 kHz take 6.4 MB instead of 16.1 MB.
+- **Fixed, mostly: memory grew with the length of a recording.** Idle outputs have no array, the engine keeps one trial at a
+  time, and StimGen's copy of a trial is released after it is read: `-t 120s` at 100 kHz takes 26 MB instead of 221 MB. Some
+  growth remains, about 1 MB per minute at 100 kHz (33 MB after 10 minutes), not yet traced to its cause.
+- **Fixed: signals.** A closed terminal or a dropped ssh connection (SIGHUP) ends the run as Ctrl-C does, with the data kept
+  and the outputs at rest (`nohup` still works). Ctrl-C during the checks or during `-n` with NEURON stops cleanly, without
+  leaving the adapter or its temporary log behind. Stopping the adapter also stops what it started. A write to a hung
+  adapter can be interrupted.
+- **Fixed: the command line.** `-p -n` (an option missing its value) made a real run named `-n_...`; now it is refused. A
+  rate longer than 47 characters, a prefix longer than 100 and a marker name longer than 63 are refused instead of cut.
+  `-n` refuses a `-t` shorter than one sample, as the run does.
+- **Fixed: the archive.** `log.txt` is covered by `SHA256SUMS`; `provenance.json` stays valid JSON with text that is not
+  UTF-8 and names the NEURON simulator for `device = neuron`. The adapter reads `;` comments as the C reader does, reports a
+  model that diverged instead of "not JSON", and its messages are no longer cut before the log path.
+- See SPEC section 4h for what was measured and what may be vetoed.
 - **Added: patching a virtual cell** (stage 1, a scripted timeline): a `[cell]` with `pipette_resistance` has a patching pipette
   that starts in the bath, touches the cell (`patch_contact`), seals (`patch_suction`), passes the cell's action currents in cell-attached, and
   breaks in (`patch_break_in`, one or more attempts); the seal, its speed, failures, the access resistance and its drift are drawn from

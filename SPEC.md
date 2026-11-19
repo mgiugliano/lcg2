@@ -268,8 +268,9 @@ a key outside a section, a line over 999 characters: all errors, with
   samples differ from the checked ones is refused.
 - **A failed final rest is never silent**: `ERROR: the outputs may NOT be at rest` is printed even with `-q`,
   and the exit status is 2 even if the run had succeeded.
-- **Abort**: SIGINT and SIGTERM set a flag (`sigaction`, no `SA_RESTART`, handler kept so a second Ctrl-C does
-  not skip the rest step); waits, the Enter prompt and the block loop poll it. Exit status 2. SIGKILL cannot be
+- **Abort**: SIGINT, SIGTERM and SIGHUP set a flag (`sigaction`, no `SA_RESTART`, handler kept so a second Ctrl-C does
+  not skip the rest step; installed first in `main()`; an ignored SIGHUP stays ignored); waits, the Enter prompt, the
+  block loop and the check of every trial poll it. Exit status 2 (1 before the run). SIGKILL cannot be
   caught (see section 6 and the M7 scope tests). The end of input at the Enter prompt aborts the run.
 - **Exit status**: 0 success; 1 an error before any output was touched; 2 aborted, failed after, or the outputs
   could not be put at rest.
@@ -301,8 +302,8 @@ a key outside a section, a line over 999 characters: all errors, with
   `stimulus.sg`, `canonical.sg` (not for protocols), `trials.json`, `provenance.json`, `files/NN_name`, `log.txt`
   and `SHA256SUMS` (data file first; paths relative to the working folder, so `shasum -a 256 -c` works).
 - **Layout** of the HDF5 file: see `docs/13-data-format.md` (root attributes, string datasets, one group per trial,
-  `ai/`, `ao/`, `markers`, `info`). `float64`, chunked (8192), unlimited, no compression. `incomplete` is 1 when a
-  trial begins and 0 only when it ends complete; `H5Fflush` after every trial.
+  `ai/`, `ao/`, `markers`, `info`). `float64`, chunked (8192, or the trial's length if shorter), unlimited, no compression. `incomplete` is 1 when a
+  trial begins and 0 only when it ends complete; `H5Fflush` after every trial (and in the middle of one: 4h).
 - **Order and exit status.** Free-space check first (nothing created if short: exit 1); folder, file and log
   before the backend is touched (failure: exit 1); whatever the engine does, the record is closed, digested and
   finished; a failed integrity record or a failed final rest is exit 2, loudly.
@@ -473,6 +474,45 @@ also carries `patch_seed` and `patch_start`.
 channel's unit; written without a unit it is right (docs/07). Fixed upstream (StimGen2 `a11eb73`, pinned 2026-11-19; a unit of
 the wrong kind is now refused).
 
+### 4h. Data safety and robustness (the B items of the audit of 2026-11-18), as built (unreleased, 2026-11-19)
+
+- **The trial in hand survives a crash (B1).** The recorder flushes the file about once a second of data in the middle of a
+  trial, as well as after it. Measured: 40 recordings of 30 s at 100 kHz killed with `kill -9` at random moments, every file
+  opened and kept the trial up to its last whole second (before: no trial at all). A flush that fails half way (a full disk)
+  left 5 of 12 files unopenable, so a mid-trial flush is made only while the file can grow by four flushes' worth of data plus
+  1 MB (`platform_file_room`: the free space, or less under `RLIMIT_FSIZE`); with that rule the full-disk sweep is as before
+  (12 of 12 open). Skipped flushes are logged.
+- **The command is written as it is played (B3, B4).** `ao/<name>` grows block by block with `ai/<name>`, so nothing proportional
+  to the trial's length is written between the wait (trigger, period) and the start, and after an abort `ao` holds what was
+  played (as long as `recorded`), not the planned command. The membrane test's copy of the command is filled the same way.
+- **Memory (B2).** An idle output has no array in the `Drive`; the engine keeps one trial, plus the rest values of the last one
+  prepared; `stim_open` frees its first render before the second; StimGen's own copy of a rendered trial is released at once
+  (any API call frees the previous result). `-t` 120 s at 100 kHz: 221 MB before, 26 MB after (33 MB after 600 s: a slow
+  growth of about 1 MB per minute remains, not traced); one 60 s stimulus trial at
+  100 kHz: 261 MB before, 220 MB after, of which StimGen's render takes about 140 MB.
+- **Signals (B5, B6, B7, B16).** SIGHUP is an abort like SIGINT (an ignored SIGHUP stays ignored, for `nohup`); the handlers are
+  installed first in `main()`, and the check of every trial and the dry run's cell building stop on an abort (exit status 1,
+  "nothing was played"; the dry run's temporary log is deleted). Stopping the adapter signals its process group. A write to the
+  adapter waits while its pipe is full and gives up on an abort or after the block time-out.
+- **Command line and parsing (B8 to B13, B15).** A value that is exactly one of LCG2's options (`-p -n`) is refused as a missing
+  value. A rate written with more than 47 characters, a `-p` prefix of more than 100 characters and a marker named (as StimGen
+  names it, `channel.name`) with more than 63 characters are refused instead of being cut. `-n` checks `-t` as the run does
+  (shared code in `session.c`). `provenance.json` writes a byte that is not UTF-8 as `\u00XX`. The adapter reads `;` as a comment
+  only after a space, as inih does, and refuses numbers that overflow to infinity.
+- **Messages and the archive (B14, B17, B18).** A NaN or an infinity in an adapter reply becomes "the model diverged", naming
+  where. Error messages hold 1024 characters, and the adapter's log path comes before its last lines. A dry run that fails keeps
+  its temporary log if the message names it. `log.txt` is the last line of `SHA256SUMS` (it is closed before its digest is taken).
+  `provenance.json` names the NEURON simulator for `device = neuron`; it is written before the run, so what happens during the run
+  (clamped samples) is in `log.txt` and in `overrange_samples`, as documented in docs/13.
+- **Also (B19, B20, B21 in part).** The README says that `BUILD` moves the object files but not `./lcg2`; the engine test that
+  needs no usable Python ignores `LCG2_SIM_PYTHON`; `nrnivmodl` gets no standard input; the adapter loops on partial writes; no
+  `malloc(0)`.
+- **Not done:** `trial_%04d` past 9999 trials (renaming changes the format: the owner decides); the other B21 items (path buffers,
+  `advance` of at least one step, a NUL byte read as a long line, CR-only files, rounded rates in the plan).
+**Vetoable:** the flush interval (1 s) and the room rule; `ao` trimmed to what was played after an abort (a format change: before,
+it was the whole planned command); SIGHUP as an abort; `\u00XX` (Latin-1) for bytes that are not UTF-8; the refusals and their
+limits (47, 100, 63 characters); a dry run's log kept when its message names it.
+
 ## 5. Hardware facts used (USB-6343 datasheet)
 
 - 4 AO, 16 bit, +/-10 V, simultaneous update; output FIFO 8,191 samples shared
@@ -502,16 +542,18 @@ the wrong kind is now refused).
 - One file per run, one group per trial (`trial_0000`, ...). Datasets
   `ai/<name>`, `ao/<name>` (realised command, channel units), `markers`.
 - Chunked, extendable datasets, written as data arrives, so long `-t` runs do
-  not need the whole record in memory.
+  not need the whole record in memory (and an output a trial does not name has
+  no array at all). A stimulus trial is held whole while it plays.
 - Rate, gains, calibration, seed, trial indices, delay, start time (UTC),
   latency, convert rate, AI over-range count and an `incomplete` flag are
   attributes. The stimulus text and the provenance record (which can be large)
   are string datasets, not attributes.
 - LCG2 adds its own provenance: LCG2 version, StimGen pin, config digest,
   command line, rate obtained, and the checked clipping count (zero).
-- The file is flushed after every trial. `H5Fflush` does not guarantee a
-  readable file after a crash; the guarantee is only "completed trials are
-  normally readable".
+- The file is flushed after every trial, and about once a second of data in
+  the middle of a trial while the disk has room (see 4h). `H5Fflush` does not
+  guarantee a readable file after a crash; the guarantee is only "completed
+  trials, and the trial in hand up to its last flush, are normally readable".
 - The file format is held between HDF5 1.8 and 1.10 (`H5Pset_libver_bounds`), see 4d.
 
 ## 8. Dependencies and pinning

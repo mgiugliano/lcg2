@@ -17,7 +17,7 @@ repository touches hardware. Each page of the manual says what is built and what
 ## Install
 
 This section installs **exactly what LCG2 was developed and tested with**. The versions below are the ones the whole test suite
-(`make test`: 958 checks on the Mac, 955 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
+(`make test`: 989 checks on the Mac, 986 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
 
 ### What is needed
 
@@ -106,12 +106,13 @@ $ make sanitize        # optional: the same suites under AddressSanitizer and UB
 ```
 
 `make test` must end with `repository clean: no data file or run folder was left by the tests`. Expected totals on a machine with
-everything installed: 203 unit, 183 configuration, 186 stimulus, 85 engine, 100 recording, 176 NEURON and 25 multi-patch checks, and the
-commands of the manual. (On Ubuntu, without matplotlib: 98 recording checks, because the macOS-only disk-image check is skipped, and 175 NEURON checks, because
+everything installed: 203 unit, 190 configuration, 188 stimulus, 95 engine, 104 recording, 184 NEURON and 25 multi-patch checks, and the
+commands of the manual. (On Ubuntu, without matplotlib: 102 recording checks, because the macOS-only disk-image check is skipped, and 183 NEURON checks, because
 the plotting check is skipped, each with a note. All 80 commands of the manual run there too.)
 
 **If the link step fails with "Resource deadlock avoided"**, the folder is inside Dropbox (or another sync service that holds new
-files). Build outside it: `make BUILD=/tmp/lcg2build` (and `make test BUILD=/tmp/lcg2build`).
+files). Put the object files outside it: `make BUILD=/tmp/lcg2build` (and `make test BUILD=/tmp/lcg2build`). The program itself
+is still written as `./lcg2` in this folder, where the manual's commands expect it.
 
 **If a NEURON rig file does not work**, it cannot find a Python that has NEURON. The example files say `sim_python = python3`, which is
 right when the virtual environment of step 3 is active. Otherwise name the Python in the file, or, without editing anything, tell LCG2

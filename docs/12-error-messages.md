@@ -20,14 +20,16 @@ where they come from. The wording is checked by the test table.
 | `give only one of: a stimulus file, -e TEXT, -t DURATION` | two sources | keep one |
 | `two stimulus files given` | LCG2 plays one | give one |
 | `unknown option '-x'` / `'-nv'` / `'--rate'` | not an option, or combined, or long | options are one letter; see `-h` |
-| `option -r needs a value` | `-r` was last, or followed by another flag | give the value as the next word |
+| `option -r needs a value` | `-r` was last | give the value as the next word |
+| `option -p needs a value, but the next word is the option -n` | the value was forgotten, and the next word is one of LCG2's options | give the value as the next word |
+| `-r: the rate is written with more than 47 characters` | the rate is kept as written, and this one would not fit | write it shorter: `20kHz` |
 | `option -r is given twice` | repeated option | give it once |
 | `option -c has an empty value` | `-c ''` | give a value |
 | `-m: expected cc or vc, got '...'` | bad mode | `-m cc` or `-m vc` |
 | `-r: '...' is not a rate` | bad rate | `20kHz`, `10000`, `2.5Hz`; no sign; at most 6 decimals |
 | `-t: '...' is not a duration` | bad duration or no unit | `30s`, `500ms`, `2min`; must be above 0 |
 | `-s: the seed must be a non-negative integer` | bad seed | digits only, up to 64 bits |
-| `-p: the prefix may contain only letters, digits, '_', '-' and '.'` | unsafe prefix | no slash, not starting with `.` |
+| `-p: the prefix may contain only letters, digits, '_', '-' and '.'` | unsafe or too long prefix | no slash, not starting with `.`, at most 100 characters |
 | `-T ... cannot be used with -t` | a plain waveform needs a stimulus | drop one |
 | `-q and -v contradict each other` | | choose one |
 | `'-' (standard input) is not supported` | | give a file, `-e` or `-t` |
@@ -58,6 +60,7 @@ where they come from. The wording is checked by the test table.
 | `the amplifier mode is not set: give -m cc or -m vc, or mode = cc|vc here` | choose; there is no default |
 | `expected cc or vc, got '...'` | fix `mode =` |
 | `'...' is not a rate (examples: 20kHz, 10000, 2.5Hz)` | fix `rate =` (no space before the unit) |
+| `the rate is written with more than 47 characters` | write `rate =` shorter: `20kHz` |
 | `expected PFI0 ... PFI15, got '...'` | fix `trigger =` (upper case) |
 | `only used with device = neuron` | remove the `sim_*` key, or set `device = neuron` |
 | `device = neuron needs at least one [cell NAME] section` / `[out P1] has no [cell P1]` | give every pipette a cell of its name |
@@ -115,6 +118,8 @@ Idle values of skipped outputs are not checked.
 | Message (shortened) | What it means | What to do |
 |:--|:--|:--|
 | `FILE:LINE: ...` or `the -e text:LINE: ...` | StimGen found a mistake in your text, at that line | fix the stimulus; `build/sg help` explains the language |
+| `the marker P1.mmm... is named with more than 63 characters (the channel, a dot and the marker's own name)` | a marker name is kept in 64 bytes in the data file | give the marker a shorter name |
+| `interrupted while checking the stimulus (at trial N of M): nothing was played` | Ctrl-C (or a hangup) while every trial was being checked; exit status 1 | run it again |
 | `FILE (trial 0003, line 5 of that trial's text): ...` | a mistake inside one trial of a protocol; the line counts the trial's own expanded text, not the protocol file | find the construct in the protocol's `stimulus { ... }` block; `build/sg expand` writes each trial as a file so you can look at line 5 |
 | `... is a plain waveform: it names no channel, so say which pipette gets it with -T NAME` | the text is one signal with no channel name | add `-T NAME` |
 | `-T is only for a plain waveform; ... names its channels itself` | `-T` with a stimulus or a protocol of stimuli | drop `-T` |
@@ -149,6 +154,9 @@ Idle values of skipped outputs are not checked.
 | Message (shortened) | What it means | What to do |
 |:--|:--|:--|
 | `device 'Dev1': there is no hardware backend yet (milestone M6, ...)` | no board backend is built | use `device = sim` |
+| `the NEURON model produced a value that is not a number (cells[0].v_rest_mV): it diverged; ...` | NaN or infinity in the model, where named | a smaller `sim_dt`, a mechanism with a steady state, parameters in the right units |
+| `interrupted while the cells were built: nothing was played` | Ctrl-C during `-n` with `device = neuron`; the adapter and what it started are stopped, its temporary log deleted | run it again |
+| `the NEURON adapter stopped reading its input (timed out)` | the adapter took nothing for the block time-out (300 s) | look in `neuron.log`; the model may be stuck |
 | `no sampling rate: give -r RATE or write rate = in [rig]` | `-t` needs a rate and none is given | add one |
 | `-t: the duration is shorter than one sample, or too long` | `-t` rounds to whole samples | give a longer duration, or a higher rate |
 | `trial 0003 is not the one that was checked (its samples changed between the check and the run): not played` | the re-rendered trial differs from the one that passed the check | this should never happen; report it with the stimulus |

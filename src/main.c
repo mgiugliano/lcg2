@@ -53,6 +53,7 @@ int main(int argc, char **argv)
     RunParams rp;
 
     err.msg[0] = 0;
+    platform_install_abort_handlers();       /* first: an abort during the checks (-n too) also ends cleanly */
     rc = session_prepare(&session, argc, argv, &err);
     if (rc < 0) return fail(&err);
     if (rc == 1) return 0;                    /* the help was printed */

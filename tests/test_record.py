@@ -289,9 +289,21 @@ def test_record_only(tmp):
     r = rt(["-c", CFG, "-r", "1Hz", "-t", "60min"], d, driver=["--noise", "0"])
     f = h5py.File(h5_of(d), "r")
     x = f["trial_0000/ai/P1"]
-    check("at 1 Hz the chunk stays 8192 samples (not one sample per block): one hour is 3600 samples",
-          r.returncode == 0 and x.shape == (3600,) and x.chunks == (8192,), (x.shape, x.chunks, r.stderr))
+    check("at 1 Hz the chunk is the trial (3600 samples in an hour), not one sample per block, and never longer than the trial",
+          r.returncode == 0 and x.shape == (3600,) and x.chunks == (3600,), (x.shape, x.chunks, r.stderr))
     f.close()
+
+    # short trials (a seal test): a chunk as long as the trial, so the file is the size of its data, not of 8192-sample chunks
+    d = newdir(tmp, "short")
+    pulses = os.path.join(tmp, "pulses.sg")
+    open(pulses, "w").write("sg 2 protocol\nrepeat 50\nstimulus {\n channel P1 unit=pA { 20ms dc(10) }\n}\n")
+    r = rt(["-c", CFG, "-r", "20kHz", pulses], d, driver=["--noise", "0"])
+    f = h5py.File(h5_of(d), "r")
+    chunks = {(i, k): f["trial_%04d/%s" % (i, k)].chunks for i in range(50) for k in ("ai/P1", "ai/P2", "ao/P1")}
+    f.close()
+    size = os.path.getsize(h5_of(d))
+    check("50 trials of 400 samples: every chunk is 400 samples, and the file is less than twice its data (%d bytes)" % size,
+          r.returncode == 0 and set(chunks.values()) == {(400,)} and size < 2 * 50 * 3 * 400 * 8 + 300000, (set(chunks.values()), size))
 
 
 # --------------------------------------------------------------------------
@@ -372,17 +384,32 @@ def test_folder(tmp):
           len(prov["files_archived"]) == 2, prov["files_archived"])
 
     lines, bad = verify_sums(d, fo)
-    check("SHA256SUMS: every digest is right (checked with hashlib)", not bad and len(lines) == 10, (bad, len(lines)))
+    check("SHA256SUMS: every digest is right (checked with hashlib)", not bad and len(lines) == 11, (bad, len(lines)))
+    check("SHA256SUMS: the log is covered too, last (it is finished before its digest is taken)",
+          lines[-1].endswith("/log.txt") and lines[-1].startswith(sha(readfile(os.path.join(fo, "log.txt")))), lines[-1:])
     check("SHA256SUMS: the data file comes first", lines[0].endswith("  " + base) and lines[0].split()[0] == sha(readfile(h5)))
     log = open(os.path.join(fo, "log.txt")).read()
     check("log.txt: versions, command, trial line, end, the data digest and the digest record",
           "LCG2 0.3.0, run cell3_" in log and "StimGen pinned at " + pin("commit") in log and "trial 1/1" in log and
           "end  completed: 1 of 1" in log and "data  " + base in log and "sha256 " + sha(readfile(h5)) in log and
-          "digests of 10 items written" in log, log)
+          "digests of 11 items written" in log and log.rstrip().endswith("this log is the last of them, and ends here"), log)
     check("log.txt: the digests of the copied files", "sha256 " + sha(readfile(os.path.join(d, "noise.sg"))) in log)
     if shutil.which("shasum"):
         v = go(["shasum", "-a", "256", "-c", os.path.join(fo, "SHA256SUMS")], d)
         check("`shasum -c` confirms the digests from the folder that holds the data file", v.returncode == 0, v.stdout + v.stderr)
+
+    # a byte that is not UTF-8 (a Latin-1 letter in a comment of -e text): provenance.json is still valid JSON
+    d6 = newdir(tmp, "latin1")
+    p6 = subprocess.run([LCG2.encode(), b"-q", b"-c", CFG.encode(), b"-s", b"1", b"-e",
+                         b"sg 2 stimulus\nrate 20kHz\n# caf\xe9 \xff\nchannel P1 unit=pA { 10ms dc(1) }\n"], cwd=d6,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        prov6 = json.loads(open(os.path.join(folder_of(h5_of(d6)), "provenance.json"), "rb").read().decode("utf-8"))
+        cmd6 = prov6["command_line"]
+    except Exception as e:                                     # noqa
+        cmd6 = "not valid: %s" % e
+    check("provenance.json stays valid UTF-8 JSON when the -e text has bytes that are not UTF-8 (each kept as \\u00XX)",
+          p6.returncode == 0 and "caf\u00e9 \u00ff" in cmd6, (p6.returncode, p6.stderr[-200:], str(cmd6)[-120:]))
 
     # StimGen's warnings reach the log and the provenance, and every digest is in the log
     d5 = newdir(tmp, "warn")
@@ -399,8 +426,8 @@ def test_folder(tmp):
           len(prov5["warnings"]) == 1 and "different durations" in prov5["warnings"][0]["text"] and
           prov5["warnings"][0]["trials"] == 1, prov5.get("warnings"))
     lines5, bad5 = verify_sums(d5, fo5)
-    check("every item's digest is in the log, with its path (SPEC 3.2), and the data file's",
-          all(("sha256 %s  %s" % tuple(l.split("  ", 1))) in log5 for l in lines5[1:]) and
+    check("every item's digest is in the log, with its path (SPEC 3.2), and the data file's (the log's own is only in SHA256SUMS)",
+          all(("sha256 %s  %s" % tuple(l.split("  ", 1))) in log5 for l in lines5[1:-1]) and lines5[-1].endswith("/log.txt") and
           ("data  " + os.path.basename(h5_of(d5)) + "  ") in log5 and not bad5, (bad5, log5[-600:]))
     d6 = newdir(tmp, "warnproto")
     pw = os.path.join(tmp, "pw.sg")
@@ -594,9 +621,9 @@ def test_abort(tmp):
     n1 = t1["ai/P1"].shape[0]
     check("the file is closed properly and the first trial is complete",
           t0.attrs["incomplete"] == 0 and t0["ai/P1"].shape == (20000,) and t0.attrs["recorded"] == 20000)
-    check("the interrupted trial is KEPT, marked incomplete, with exactly the samples it had",
+    check("the interrupted trial is KEPT, marked incomplete, with exactly the samples it had (inputs, and the command played)",
           t1.attrs["incomplete"] == 1 and 0 < n1 < 20000 and n1 == t1.attrs["recorded"] and n1 % 2000 == 0 and
-          t1["ao/P1"].shape == (20000,), (t1.attrs["incomplete"], n1, t1.attrs["recorded"]))
+          t1["ao/P1"].shape == (n1,), (t1.attrs["incomplete"], n1, t1.attrs["recorded"], t1["ao/P1"].shape))
     check("no third trial was started", "trial_0002" not in f, list(f))
     f.close()
     fo = folder_of(h5)
@@ -660,6 +687,29 @@ def test_kill(tmp):
           unreadable <= 1, "unreadable: %d" % unreadable)
     check("...and every trial that is there as complete has all its samples", bad == 0, "bad trials: %d" % bad)
     check("...the runs had got some way (the test is not vacuous)", max(groups or [0]) >= 2, groups)
+
+    # A long trial is flushed about once a second while it runs: killed after 3.5 s of a 30 s trial, the
+    # file keeps that trial, marked incomplete, with its inputs and its command up to the last flush.
+    d = newdir(tmp, "kill_long")
+    long_sg = os.path.join(tmp, "long.sg")
+    open(long_sg, "w").write("sg 2 stimulus\nchannel P1 unit=pA rest=0 {\n 30s ramp(0, 300)\n}\n")
+    p = subprocess.Popen([LCG2, "-q", "-R", "-c", CFG, "-r", "20kHz", long_sg], cwd=d, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    time.sleep(3.5)
+    p.send_signal(signal.SIGKILL)
+    p.wait()
+    try:
+        f = h5py.File(h5_of(d), "r")
+        t = f["trial_0000"]
+        n_ai, n_ao = t["ai/P1"].shape[0], t["ao/P1"].shape[0]
+        ramp_ok = n_ao > 0 and abs(t["ao/P1"][n_ao - 1] - 300.0 * (n_ao - 1) / 600000) < 1e-9
+        got = (t.attrs["incomplete"], n_ai, n_ao, ramp_ok)
+        f.close()
+    except Exception as e:                                     # noqa
+        got = ("unreadable", str(e)[:200])
+    check("SIGKILL 3.5 s into a 30 s trial: the trial is kept, incomplete, with 2 to 3.5 s of inputs and the same "
+          "length of command (flushed once a second)",
+          len(got) == 4 and got[0] == 1 and 40000 <= got[1] <= 70000 and got[2] == got[1] and got[3], got)
 
 
 def test_disk_full(tmp):

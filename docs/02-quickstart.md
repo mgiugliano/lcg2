@@ -52,7 +52,8 @@ a few test tools, among them `build/sg`, StimGen's own command-line renderer.
 > **Building inside a Dropbox folder.** Dropbox can hold freshly written files, and the
 > link then fails with `Resource deadlock avoided`. Keep the build folder outside it:
 > `make BUILD=/tmp/lcg2-build` (and `LCG2_BUILD=/tmp/lcg2-build` for the tests
-> `tests/test_stim.py`; `make test BUILD=...` does it for you).
+> `tests/test_stim.py`; `make test BUILD=...` does it for you). `BUILD` moves the object
+> files and the test programs; the program itself is still written as `./lcg2` here.
 
 ## Run the tests
 

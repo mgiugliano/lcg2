@@ -146,8 +146,8 @@ int main(int argc, char **argv)
             fprintf(f, "\n");
             for (s = 0; s < d.n + d.pad; s++) {
                 fprintf(f, "%lld", (long long)s);
-                for (k = 0; k < d.nao; k++) fprintf(f, "\t%.17g", d.ao[k].v[s]);
-                for (k = 0; k < d.ndig; k++) fprintf(f, "\t%d", d.dig[k].b[s]);
+                for (k = 0; k < d.nao; k++) fprintf(f, "\t%.17g", drive_ao(&d, k, s));
+                for (k = 0; k < d.ndig; k++) fprintf(f, "\t%d", drive_dig(&d, k, s));
                 fprintf(f, "\n");
             }
             fclose(f);

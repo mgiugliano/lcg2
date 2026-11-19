@@ -113,6 +113,8 @@ typedef struct {
     int        trials;
     /* the membrane test (membrane_test = yes in an [in]): per active input, the trial's current and command */
     double    *mt_cur[CFG_MAX_IN], *mt_cmd[CFG_MAX_IN];
+    int        mt_j[CFG_MAX_IN];      /* the command (TrialInfo.cmd) of each tested input */
+    const TrialInfo *ti;              /* the trial in hand, between begin and end        */
     int64_t    mt_n;
     int        mt_said;               /* the note that it needs voltage clamp was given */
     /* live mode (-L): keys act on the pipette; the readout is one line that is rewritten */
@@ -231,7 +233,6 @@ static int tee_begin(void *u, const TrialInfo *ti, Err *err)
 {
     Tee *t = (Tee *)u;
     int k, j;
-    int64_t i;
     mt_free(t);
     if (t->live && !t->checked) {
         char said[200], stage[40], cell[48];
@@ -248,6 +249,7 @@ static int tee_begin(void *u, const TrialInfo *ti, Err *err)
     }
     if (t->live && live_keys(t, err) < 0) return -1;
     t->mt_n = ti->n;
+    t->ti = ti;
     for (k = 0; k < ti->nin; k++) {
         const InCh *in = &t->c->in[ti->ai[k].in];
         if (!in->mtest) continue;
@@ -265,9 +267,9 @@ static int tee_begin(void *u, const TrialInfo *ti, Err *err)
             continue;
         }
         t->mt_cur[k] = (double *)calloc((size_t)ti->n, sizeof(double));
-        t->mt_cmd[k] = (double *)malloc((size_t)ti->n * sizeof(double));
+        t->mt_cmd[k] = (double *)calloc((size_t)ti->n, sizeof(double));      /* filled block by block, as played */
         if (!t->mt_cur[k] || !t->mt_cmd[k]) { mt_free(t); err_set(err, "out of memory (membrane test)"); return -1; }
-        for (i = 0; i < ti->n; i++) t->mt_cmd[k][i] = ti->cmd[j].x[i] * ti->cmd[j].scale;
+        t->mt_j[k] = j;
     }
     return t->rec.begin(t->rec.user, ti, err);
 }
@@ -279,8 +281,13 @@ static int tee_block(void *u, int64_t first, int64_t count, const double *const 
     if (t->live && live_keys(t, err) < 0) return -1;
     t->samples += count;
     for (k = 0; x[k]; k++)
-        if (t->mt_cur[k] && first + count <= t->mt_n)
+        if (t->mt_cur[k] && first + count <= t->mt_n) {
+            const double *c = t->ti->cmd[t->mt_j[k]].x + first;
+            double sc = t->ti->cmd[t->mt_j[k]].scale;
+            int64_t i;
             memcpy(t->mt_cur[k] + first, x[k], (size_t)count * sizeof(double));
+            for (i = 0; i < count; i++) t->mt_cmd[k][first + i] = c[i] * sc;
+        }
     return t->rec.block(t->rec.user, first, count, x, err);
 }
 
@@ -414,6 +421,7 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
     const Stim *st = &s->stim;
     StrBuf b;
     const char *sha;
+    const char *sim_name = s->config.device == DEV_NEURON ? "NEURON simulator" : "loopback simulator";
     int k;
 
     memset(&b, 0, sizeof b);
@@ -446,7 +454,7 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
     sb_addf(&b, "  \"rate\": {\"hz\": %.17g, \"p\": %lld, \"q\": %lld, \"source\": ", (double)rate_p / (double)rate_q,
             (long long)rate_p, (long long)rate_q);
     sb_json(&b, rate_source);
-    sb_add(&b, ", \"obtained\": \"the simulator has no clock to coerce it: the rate obtained is the rate asked\"},\n");
+    sb_addf(&b, ", \"obtained\": \"the %s has no clock to coerce it: the rate obtained is the rate asked\"},\n", sim_name);
     if (s->opt.has_duration) {
         sb_add(&b, "  \"seed\": null,\n");
     } else if (st->is_protocol) {
@@ -467,7 +475,7 @@ static char *provenance(const RunParams *rp, const Archive *a, const char *cmd, 
         sb_addf(&b, ", \"trials\": %d}", st->warn_count[k]);
     }
     sb_add(&b, st->nwarn && !s->opt.has_duration ? "\n  ],\n" : "],\n");
-    sb_add(&b, "  \"convert_rate\": null,\n  \"convert_rate_note\": \"the loopback simulator has no multiplexed converter, so there is no convert rate\",\n");
+    sb_addf(&b, "  \"convert_rate\": null,\n  \"convert_rate_note\": \"the %s has no multiplexed converter, so there is no convert rate\",\n", sim_name);
     sha = archive_sha(a, "config.ini");
     sb_addf(&b, "  \"config_sha256\": \"%s\",\n", sha ? sha : "");
     sha = archive_sha(a, "config_original.ini");
@@ -544,21 +552,10 @@ int run_execute(const RunParams *rp, Err *err)
     /* What is to be played, and its timing. */
     memset(&job, 0, sizeof job);
     memset(&timing, 0, sizeof timing);
-    if (o->has_duration) {                         /* -t: one trial with every output at rest */
-        int64_t n;
-        int exact;
-        if (o->has_rate) { rate_p = o->rate_p; rate_q = o->rate_q; rate_source = "-r"; }
-        else if (c->has_rate) { rate_p = c->rate_p; rate_q = c->rate_q; rate_source = "the configuration"; }
-        else {
-            err_set(err, "no sampling rate: give -r RATE or write rate = in [rig]");
-            return 1;
-        }
-        if (config_check_rate(c, rate_p, rate_q, err) < 0) return 1;
-        if (!units_ps_to_samples(o->duration_ps, rate_p, rate_q, &n, &exact) || n < 1) {
-            err_set(err, "-t: the duration is shorter than one sample, or too long");
-            return 1;
-        }
-        job.idle_n = n; job.idle_rate_p = rate_p; job.idle_rate_q = rate_q;
+    if (o->has_duration) {                         /* -t: one trial with every output at rest (checked by session.c) */
+        rate_p = s->report.rate_p; rate_q = s->report.rate_q;
+        rate_source = o->has_rate ? "-r" : "the configuration";
+        job.idle_n = s->report.total_samples; job.idle_rate_p = rate_p; job.idle_rate_q = rate_q;
         ntrials = 1;
     } else {
         job.st = st;
@@ -576,13 +573,15 @@ int run_execute(const RunParams *rp, Err *err)
     {
         int act[CFG_MAX_IN], nin = 0, k, ncmd = 0;
         int64_t samples = 0;
-        double need, margin;
+        double need, margin, slack;
         int64_t freeb = platform_free_bytes(".");
         for (k = 0; k < c->n_in; k++) nin += !c->in[k].skip;
         if (o->has_duration) samples = job.idle_n;
         else { samples = s->report.total_samples; ncmd = s->report.first.nch; }
         (void)act;
-        need = (double)samples * (double)(nin + ncmd) * 8.0 + 131072.0 + 20480.0 * (double)ntrials;
+        slack = (double)RECORD_CHUNK_SAMPLES * (double)ntrials;     /* the last chunk of each dataset, stored whole */
+        if (slack > (double)samples) slack = (double)samples;           /* (a chunk is never longer than its trial) */
+        need = ((double)samples + slack) * (double)(nin + ncmd) * 8.0 + 131072.0 + 20480.0 * (double)ntrials;
         margin = need * 1.10 + 1048576.0;
         estimated_bytes = (int64_t)need;
         if (freeb >= 0 && (double)freeb < margin) {
@@ -671,7 +670,6 @@ int run_execute(const RunParams *rp, Err *err)
         be = sim_backend_new(&rp->sim);
     }
     if (!be) { err_set(err, "out of memory"); record_close(rec, &e2); goto setup_failed; }
-    platform_install_abort_handlers();
     if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
     memset(&tee, 0, sizeof tee);
     record_sink(rec, &tee.rec);
@@ -706,6 +704,9 @@ int run_execute(const RunParams *rp, Err *err)
                 rep.completed, ntrials, rep.started, (double)rep.max_delay_ns / 1e9, (long long)rep.overrange_total);
     if (status == ENGINE_FAILED && err->msg[0]) archive_log(&ar, "error  %s", err->msg);
     if (rep.rest_failed) archive_log(&ar, "ERROR  the outputs may NOT be at rest");
+    if (record_flushes_skipped(rec))
+        archive_log(&ar, "note  %d flush(es) of the data file in the middle of a trial were left out: the disk was nearly "
+                    "full (the file was flushed at the end of each trial)", record_flushes_skipped(rec));
     if (record_close(rec, &e2) < 0) {
         fprintf(stderr, "lcg2: ERROR: the data file could not be closed properly: %s\n", e2.msg);
         archive_log(&ar, "ERROR  the data file could not be closed properly: %s", e2.msg);

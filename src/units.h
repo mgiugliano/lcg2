@@ -37,6 +37,9 @@
 #include <stdint.h>
 #include "lcg2.h"
 
+/* A rate is kept as written (to hand to StimGen) up to this many characters; a longer text is refused, not cut. */
+#define UNITS_RATE_TEXT_MAX 47
+
 /* The two physical dimensions an amplifier channel can carry. */
 typedef enum { DIM_NONE = 0, DIM_CURRENT, DIM_VOLTAGE } Dim;
 

@@ -311,6 +311,12 @@ def test_messages(tmp):
     r = lcg2(["-e", "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 1s bogus(1) }"])
     check("a syntax error in -e names the -e text", r.returncode == 1 and
           r.stderr.startswith("lcg2: the -e text:") and "editor" not in r.stderr, r.stderr)
+    # a marker is kept with its full name (channel.name) in 64 bytes: a longer one is refused, not emptied
+    for n, ok in ((60, True), (61, False)):
+        r = lcg2(["-e", "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 5ms dc(0)\n@%s\n5ms dc(1) }" % ("m" * n)])
+        check("a marker named with %d characters (P1.%s...) is %s" % (n + 3, "m" * 3, "kept" if ok else "refused"),
+              (r.returncode == 0) if ok else (r.returncode == 1 and "named with more than 63 characters" in r.stderr),
+              r.stderr[-300:])
     r = lcg2(["/nonexistent/x.sg"])
     check("a missing stimulus file is reported", r.returncode == 1 and "cannot open stimulus file" in r.stderr,
           r.stderr)

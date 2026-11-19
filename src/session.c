@@ -137,6 +137,8 @@ static int check_stimulus(Session *s, Err *err)
         Map map[CFG_MAX_OUT];
         double peak[CFG_MAX_OUT] = { 0 };
 
+        if (platform_abort_requested())
+            return err_set(err, "interrupted while checking the stimulus (at trial %d of %d): nothing was played", i + 1, stim->n);
         if (stim_render(stim, i, &t, err) < 0) return -1;
         if (i == 0) {
             report->rate_p = t.rate_p;
@@ -230,8 +232,9 @@ int session_print_plan(const Session *s, Err *err)
         printf("  seed           %s\n", o->seed ? o->seed : "drawn at the start and recorded");
 
     if (o->has_duration)
-        printf("  work           record only, %.6g s\n",
-               (double)o->duration_ps / 1e12);
+        printf("  work           record only, %.6g s (%lld samples per input at %.17g Hz)\n",
+               (double)o->duration_ps / 1e12, (long long)rep->total_samples,
+               (double)rep->rate_p / (double)rep->rate_q);
     else if (o->stimulus)
         printf("  work           play the stimulus in %s\n", o->stimulus);
     else
@@ -314,7 +317,8 @@ int session_print_plan(const Session *s, Err *err)
         no.python = neuron_python(c); no.script = script; no.stderr_path = logpath;
         fflush(stdout);
         if (neuron_check(&no, c, err) < 0) {
-            if (have_log) platform_delete_file(logpath);
+            if (platform_abort_requested()) err_set(err, "interrupted while the cells were built: nothing was played");
+            if (have_log && !strstr(err->msg, logpath)) platform_delete_file(logpath);   /* kept if the message names it */
             return -1;
         }
         if (have_log) platform_delete_file(logpath);
@@ -323,6 +327,25 @@ int session_print_plan(const Session *s, Err *err)
     return 0;
 }
 
+
+/* -t: the rate (from -r or the configuration) and the number of samples, checked as the run would check them,
+ * so that -n refuses what the run refuses. */
+static int check_record(Session *s, Err *err)
+{
+    const Options *o = &s->opt;
+    const Config *c = &s->config;
+    Report *report = &s->report;
+    int64_t n;
+    int exact;
+    if (o->has_rate) { report->rate_p = o->rate_p; report->rate_q = o->rate_q; }
+    else if (c->has_rate) { report->rate_p = c->rate_p; report->rate_q = c->rate_q; }
+    else return err_set(err, "no sampling rate: give -r RATE or write rate = in [rig]");
+    if (config_check_rate(c, report->rate_p, report->rate_q, err) < 0) return -1;
+    if (!units_ps_to_samples(o->duration_ps, report->rate_p, report->rate_q, &n, &exact) || n < 1)
+        return err_set(err, "-t: the duration is shorter than one sample, or too long");
+    report->total_samples = n;                     /* (ntrials stays 0: it means that a stimulus was read) */
+    return 0;
+}
 
 int session_prepare(Session *s, int argc, char **argv, Err *err)
 {
@@ -340,6 +363,6 @@ int session_prepare(Session *s, int argc, char **argv, Err *err)
         return -1;
     if (config_build(&s->table, s->opt.mode, &s->config, err) < 0) return -1;
     if (check_plan(&s->opt, &s->config, err) < 0) return -1;
-    if (!s->opt.has_duration && check_stimulus(s, err) < 0) return -1;
+    if (s->opt.has_duration ? check_record(s, err) < 0 : check_stimulus(s, err) < 0) return -1;
     return 0;
 }

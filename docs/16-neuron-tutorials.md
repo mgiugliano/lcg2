@@ -62,15 +62,17 @@ $ ./lcg2 -c examples/student_kit/rig.ini examples/student_kit/small_step.sg
 $ python3 examples/student_kit/characterise.py rin FILE.h5
 step: -20 pA; potential -64.97 mV before, -66.51 mV at the end of the step
 input resistance: 76.7 MOhm   (-1.53 mV / -20 pA)
-membrane time constant: 0.7 ms   (the time to reach 63% of the change)
+membrane time constant: 0.73 ms   (the time to reach 63% of the change)
 ```
 
 ![small step](figures/fig-nrn-rin.svg)
 
 **Reading it.** The potential before the step is the resting potential (−65 mV). The steady change divided by the
 current is the **input resistance**, Ohm's law: ΔV / ΔI = −1.53 mV / −20 pA = 77 MΩ. The time to reach 63 % of the
-change is the **membrane time constant**, here under a millisecond because this soma is tiny (20 µm): a small cell
-has little capacitance. The ringing at the start and end of the step is real: a Hodgkin–Huxley membrane is
+change is the **membrane time constant**, here under a millisecond. It is not short because the soma is small: the
+capacitance and the conductance both grow with the area, so their ratio does not depend on it (`-P big` gives
+0.65 ms). It is short because at rest some of the Hodgkin–Huxley channels are open, and their conductance adds to the
+leak; with the leak alone the same membrane has 3.3 ms (tutorial J). The ringing at the start and end of the step is real: a Hodgkin–Huxley membrane is
 resonant. (Rin is the *slope* at small currents; the measurement is only valid while the response is linear, so
 use small steps.)
 

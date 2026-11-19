@@ -132,7 +132,7 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
    compiled into a cache), electrodes by unit, synapses, and steps them. It keeps the protocol on a private copy of
    fd 1 and sends fd 1 to the log: NEURON prints to stdout.
 3. `-n` runs the adapter in `check` mode (`neuron_check`), so model mistakes show before a run.
-4. Tests: `tests/test_neuron.py` (184 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
+4. Tests: `tests/test_neuron.py` (188 checks; needs a Python with NEURON and h5py, else it **skips loudly**).
    `examples/student_kit/` is the package for students and is tested too.
 
 **The electrode model** (`CCElectrode`, `VCElectrode`, `Noise` in `lcg2_neuron.py`) is used only when a cell has electrode or

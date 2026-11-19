@@ -74,7 +74,7 @@ stimulus.
 
 ```console
 $ ./lcg2 -c examples/single_pipette.ini -n examples/step.sg
-LCG2 0.3.0, dry run: the plan
+LCG2 0.4.0, dry run: the plan
 
   configuration  examples/single_pipette.ini (profile: none)
   device         sim  (built-in loopback simulator)

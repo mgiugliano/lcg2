@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-11-19)
 
 - **Fixed: a crash in a long trial lost the whole trial.** The data file is now flushed about once a second of data
   during a trial (while the disk has room for more), not only after it: a `kill -9` keeps the trial up to its last second.
@@ -22,6 +22,11 @@
   UTF-8 and names the NEURON simulator for `device = neuron`. The adapter reads `;` comments as the C reader does, reports a
   model that diverged instead of "not JSON", and its messages are no longer cut before the log path.
 - See SPEC section 4h for what was measured and what may be vetoed.
+- **Fixed: `characterise.py` (the student kit's analysis).** `fi` read the resting potential as if every run were at 20 kHz;
+  `rin` measured the time constant one sample short (1.4 % low at 20 kHz) and now interpolates between samples, taking
+  each sample at the end of its interval: on a leak-only cell it finds cm/gl plus the simulator's own dt/2 to 0.1 %, at
+  20 and 100 kHz; `rin` and `sag` on a recording without a step say so instead of failing with a traceback. Tutorial A
+  quotes the new output (0.73 ms) and no longer says that the time constant is short because the soma is small.
 - **Added: patching a virtual cell** (stage 1, a scripted timeline): a `[cell]` with `pipette_resistance` has a patching pipette
   that starts in the bath, touches the cell (`patch_contact`), seals (`patch_suction`), passes the cell's action currents in cell-attached, and
   breaks in (`patch_break_in`, one or more attempts); the seal, its speed, failures, the access resistance and its drift are drawn from

@@ -17,7 +17,7 @@ repository touches hardware. Each page of the manual says what is built and what
 ## Install
 
 This section installs **exactly what LCG2 was developed and tested with**. The versions below are the ones the whole test suite
-(`make test`: 989 checks on the Mac, 986 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
+(`make test`: 993 checks on the Mac, 990 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
 
 ### What is needed
 
@@ -26,7 +26,7 @@ This section installs **exactly what LCG2 was developed and tested with**. The v
 | Operating system | macOS 27 on Apple silicon (arm64) | Ubuntu 22.04.5, x86-64 | |
 | C compiler, `make` | Apple clang 21.0.0, GNU Make 3.81 | gcc 11.4.0, GNU Make 4.3 | building |
 | HDF5 (C library) | Homebrew `hdf5-mpi` 2.2.0 (the serial `hdf5` works too) | `libhdf5-dev` 1.10.7 | building |
-| StimGen 2 | the commit in [`STIMGEN_PIN`](STIMGEN_PIN), checked at build time: `379434b` for v0.3.0, `a11eb73` on main | same | building |
+| StimGen 2 | commit `a11eb7367f8f39f29169998baf42d3f545003e7e` (pinned in [`STIMGEN_PIN`](STIMGEN_PIN), checked at build time; v0.3.0 used `379434b`) | same | building |
 | Python | 3.11.18 (Homebrew) | 3.10.12 | tests, analysis, NEURON |
 | `h5py` | 3.16.0 | 3.16.0 | reading data, the recording tests |
 | NEURON | 8.2.6 | 9.0.2 | `device = neuron` only |
@@ -66,9 +66,9 @@ build stops if they are not the pinned version (a fingerprint in [`STIMGEN_PIN`]
 ```console
 $ mkdir ~/dev && cd ~/dev
 $ git clone https://github.com/mgiugliano/StimGen2.git StimGen
-$ git -C StimGen checkout 379434b2e07208c5ffa9812d17dd821f64c8cdbf   # for v0.3.0; main needs a11eb7367f8f39f29169998baf42d3f545003e7e
+$ git -C StimGen checkout a11eb7367f8f39f29169998baf42d3f545003e7e   # the commit in STIMGEN_PIN (v0.3.0 needs 379434b)
 $ git clone https://github.com/mgiugliano/lcg2.git
-$ git -C lcg2 checkout v0.3.0                  # the released version; main is the development branch
+$ git -C lcg2 checkout v0.4.0                  # the released version; main is the development branch
 ```
 
 The result must look like this (the names `StimGen` and `lcg2` matter; use `make STIMGEN_SRC=/other/path/src` if you keep StimGen
@@ -106,8 +106,8 @@ $ make sanitize        # optional: the same suites under AddressSanitizer and UB
 ```
 
 `make test` must end with `repository clean: no data file or run folder was left by the tests`. Expected totals on a machine with
-everything installed: 203 unit, 190 configuration, 188 stimulus, 95 engine, 104 recording, 184 NEURON and 25 multi-patch checks, and the
-commands of the manual. (On Ubuntu, without matplotlib: 102 recording checks, because the macOS-only disk-image check is skipped, and 183 NEURON checks, because
+everything installed: 203 unit, 190 configuration, 188 stimulus, 95 engine, 104 recording, 188 NEURON and 25 multi-patch checks, and the
+commands of the manual. (On Ubuntu, without matplotlib: 102 recording checks, because the macOS-only disk-image check is skipped, and 187 NEURON checks, because
 the plotting check is skipped, each with a note. All 80 commands of the manual run there too.)
 
 **If the link step fails with "Resource deadlock avoided"**, the folder is inside Dropbox (or another sync service that holds new

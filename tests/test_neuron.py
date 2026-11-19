@@ -608,6 +608,30 @@ def test_kit(tmp):
     o = go([PY, ch, "fi", h5_of(work)], work).stdout
     check("the kit: f-I analysis finds the resting potential and an input resistance",
           "resting potential: -65.0 mV" in o and "input resistance" in o and "amp=300pA" in o, o)
+    # characterise.py reads each run at its own rate (it once assumed 20 kHz for the resting potential)
+    work = newdir(tmp, "kit_fi_50k")
+    r = lcg(["-q", "-r", "50kHz", "-c", os.path.join(d, "rig.ini"), os.path.join(d, "current_steps.sg")], work)
+    o = go([PY, ch, "fi", h5_of(work)], work).stdout
+    check("the kit: at 50 kHz the f-I analysis finds the same resting potential (-65.0 mV)",
+          r.returncode == 0 and "resting potential: -65.0 mV" in o, o + r.stderr)
+    # the membrane time constant of a cell with only a leak: exactly cm/gl = 3.3333 ms, and the simulator's backward
+    # Euler step makes it tau + dt/2; the analysis must find that, to within a hundredth of a step
+    for rate, dt_us in (("20kHz", 25.0), ("100kHz", 10.0)):
+        work = newdir(tmp, "kit_tau_" + rate)
+        sg = write(os.path.join(work, "step.sg"), open(os.path.join(KIT, "small_step.sg")).read().replace("rate 20kHz", "rate " + rate))
+        r = lcg(["-q", "-P", "ideal", "-c", os.path.join(d, "rig_aec.ini"), sg], work)
+        o = go([PY, ch, "rin", h5_of(work)], work).stdout
+        m = re.search(r"time constant: ([0-9.]+) ms", o)
+        want = 1.0 / 0.3 + dt_us / 2000.0
+        check("the kit: rin finds the time constant of a leak-only cell at %s (%s ms; exact %.4f ms with the step's bias)"
+              % (rate, m.group(1) if m else "?", want), r.returncode == 0 and m is not None and abs(float(m.group(1)) - want) < 0.006,
+              o + r.stderr)
+    # a recording with no step is said so, not a traceback
+    work = newdir(tmp, "kit_nostep")
+    r = lcg(["-q", "-c", os.path.join(d, "rig.ini"), "-t", "0.2s"], work)
+    rr = go([PY, ch, "rin", h5_of(work)], work)
+    check("the kit: rin on a recording without a command says there is no step (no traceback)",
+          rr.returncode != 0 and "no step to measure" in rr.stderr and "Traceback" not in rr.stderr, rr.stderr)
     work = newdir(tmp, "kit_vc")
     r = lcg(["-q", "-m", "vc", "-c", os.path.join(d, "rig.ini"), os.path.join(d, "vc_steps.sg")], work)
     o = go([PY, ch, "iv", h5_of(work)], work).stdout

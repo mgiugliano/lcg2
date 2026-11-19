@@ -10,7 +10,7 @@
 It reads what `current_steps.sg`, `vc_steps.sg`, `pair_pulse.sg`, `small_step.sg` and `sag_step.sg` recorded.  Open the
 file to see how little it takes to analyse a recording: this is a model for your own scripts.
 """
-import json
+import math
 import sys
 
 import h5py
@@ -42,7 +42,8 @@ def fi(f):
         nspk.append(n)
         ys.append(v[b - 1] - v[a - 1])
     small = [(x, y) for x, y in zip(xs, ys) if -60 <= x <= 0]
-    rest = float(f[trials(f)[0]]["ai/P1"][int(0.1 * 20000)])
+    g0 = f[trials(f)[0]]
+    rest = float(g0["ai/P1"][int(0.1 * float(g0.attrs["rate_hz"]))])     # at 100 ms, before the step, at this run's rate
     first = next((x for x, y in zip(xs, nspk) if y > 0), None)
     steady = next((x for x, y in zip(xs, nspk) if y >= 5), None)
     if first is not None:
@@ -68,12 +69,31 @@ def iv(f):
 
 
 def step_of(g):
-    """The first current or voltage step of trial g: (start index, end index, size, baseline mean, rate)."""
+    """The first current or voltage step of trial g: (start index, end index, size, rate).  The step is on from sample a
+    to sample b - 1."""
     rate = float(g.attrs["rate_hz"])
+    if "ao" not in g or "P1" not in g["ao"]:
+        sys.exit("this trial has no command on P1 (a recording made with -t?): there is no step to measure")
     cmd = g["ao/P1"][:]
-    a = next(i for i in range(len(cmd)) if cmd[i] != cmd[0])
+    a = next((i for i in range(len(cmd)) if cmd[i] != cmd[0]), None)
+    if a is None:
+        sys.exit("the command on P1 is constant (%g throughout): there is no step to measure" % cmd[0])
     b = next((i for i in range(a, len(cmd)) if cmd[i] != cmd[a]), len(cmd))
     return a, b, float(cmd[a] - cmd[0]), rate
+
+
+def time_to(v, a, b, base, target):
+    """How long after the step began (at sample a) the response first reaches `target` (a distance from base), in samples,
+    between two samples by linear interpolation.  A sample is the value at the END of its interval (docs/14): sample a is
+    one interval after the step began, so sample i lies i - a + 1 intervals after it, and the value before the step
+    (base) lies at 0."""
+    prev = 0.0
+    for i in range(a, b):
+        d = abs(v[i] - base)
+        if d >= target:
+            return i - a + (target - prev) / (d - prev)
+        prev = d
+    return float("nan")
 
 
 def rin(f):
@@ -83,10 +103,10 @@ def rin(f):
     base = float(v[max(0, a - int(0.05 * rate)):a].mean())
     end = float(v[b - int(0.05 * rate):b].mean())
     dv = end - base
-    t63 = next(i for i in range(a, b) if abs(v[i] - base) >= 0.632 * abs(dv))
+    t63 = time_to(v, a, b, base, (1 - math.exp(-1)) * abs(dv))
     print("step: %g pA; potential %.2f mV before, %.2f mV at the end of the step" % (di, base, end))
     print("input resistance: %.1f MOhm   (%.2f mV / %g pA)" % (dv / di * 1000.0, dv, di))
-    print("membrane time constant: %.1f ms   (the time to reach 63%% of the change)" % ((t63 - a) / rate * 1e3))
+    print("membrane time constant: %.2f ms   (the time to reach 63%% of the change)" % (t63 / rate * 1e3))
 
 
 def sag(f):

@@ -160,8 +160,10 @@ and a long record-only run never holds its whole record in memory. The interface
 hardware spike may change it.
 
 **Memory.** An output a trial does not name has no array in the `Drive` (read samples with `drive_ao()` and
-`drive_dig()`), so a record-only run (`-t`) holds no trial-length array at all: 26 MB after 2 minutes at 100 kHz,
-33 MB after 10 (a slow growth of about 1 MB per minute remains, not yet traced). The engine keeps one trial at a time, plus the rest values of the last one prepared. A stimulus trial
+`drive_dig()`), so a record-only run (`-t`) holds no trial-length array at all, and HDF5's metadata cache is capped
+(`record.c`: the index of a long trial's chunks would otherwise stay in memory, about 0.6 MB per minute at 100 kHz):
+a recording of 40 minutes at 100 kHz takes 28 MB, the same as one of 10. A protocol holds its expanded trial list for
+the whole run, about 4 KB per trial. The engine keeps one trial at a time, plus the rest values of the last one prepared. A stimulus trial
 is held whole, twice (its samples and the volts that drive the outputs), and StimGen itself needs about three
 copies of it while it renders: a single trial of 60 s at 100 kHz peaks at about 220 MB (measured 2026-11-19).
 Computing the volts block by block would remove one copy; it would change what `play()` receives.

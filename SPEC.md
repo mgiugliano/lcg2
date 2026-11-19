@@ -487,8 +487,11 @@ the wrong kind is now refused).
   played (as long as `recorded`), not the planned command. The membrane test's copy of the command is filled the same way.
 - **Memory (B2).** An idle output has no array in the `Drive`; the engine keeps one trial, plus the rest values of the last one
   prepared; `stim_open` frees its first render before the second; StimGen's own copy of a rendered trial is released at once
-  (any API call frees the previous result). `-t` 120 s at 100 kHz: 221 MB before, 26 MB after (33 MB after 600 s: a slow
-  growth of about 1 MB per minute remains, not traced); one 60 s stimulus trial at
+  (any API call frees the previous result). `-t` 120 s at 100 kHz: 221 MB before, 26 MB after. The slow growth that
+  remained (about 0.6 MB per minute at 100 kHz on two inputs) was HDF5's index of the chunks, kept whole in its metadata
+  cache, which counts a node by its size on disk (2 KB) though it takes about 7 KB in memory: the cache is capped at
+  256 KB as HDF5 counts it, and a 40-minute recording stays at 28 MB (after 0.4.0, 2026-11-19; found with `malloc_history`). One 60 s
+  stimulus trial at
   100 kHz: 261 MB before, 220 MB after, of which StimGen's render takes about 140 MB.
 - **Signals (B5, B6, B7, B16).** SIGHUP is an abort like SIGINT (an ignored SIGHUP stays ignored, for `nohup`); the handlers are
   installed first in `main()`, and the check of every trial and the dry run's cell building stop on an abort (exit status 1,

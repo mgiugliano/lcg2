@@ -17,7 +17,7 @@ repository touches hardware. Each page of the manual says what is built and what
 ## Install
 
 This section installs **exactly what LCG2 was developed and tested with**. The versions below are the ones the whole test suite
-(`make test`: 993 checks on the Mac, 990 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
+(`make test`: 994 checks on the Mac, 991 on Ubuntu, and the 80 commands of the manual) passed on, on two machines. Other versions probably work; these are known to.
 
 ### What is needed
 
@@ -106,8 +106,8 @@ $ make sanitize        # optional: the same suites under AddressSanitizer and UB
 ```
 
 `make test` must end with `repository clean: no data file or run folder was left by the tests`. Expected totals on a machine with
-everything installed: 203 unit, 190 configuration, 188 stimulus, 95 engine, 104 recording, 188 NEURON and 25 multi-patch checks, and the
-commands of the manual. (On Ubuntu, without matplotlib: 102 recording checks, because the macOS-only disk-image check is skipped, and 187 NEURON checks, because
+everything installed: 203 unit, 190 configuration, 188 stimulus, 95 engine, 105 recording, 188 NEURON and 25 multi-patch checks, and the
+commands of the manual. (On Ubuntu, without matplotlib: 103 recording checks, because the macOS-only disk-image check is skipped, and 187 NEURON checks, because
 the plotting check is skipped, each with a note. All 80 commands of the manual run there too.)
 
 **If the link step fails with "Resource deadlock avoided"**, the folder is inside Dropbox (or another sync service that holds new

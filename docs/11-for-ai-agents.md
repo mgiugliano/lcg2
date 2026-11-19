@@ -120,7 +120,7 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
    the own SHA-256; `run.c` orders it all (free-space check, folder, engine, close, digests) and sets the
    exit status (2 if the integrity record or the final rest fails).
 3. `session.c` holds what `main.c` used to do (command line, configuration, checks); `main.c` is thin.
-4. Tests: `tests/test_record.py` (104 checks, h5py), `examples/read_run.py` is the reference reader.
+4. Tests: `tests/test_record.py` (105 checks, h5py), `examples/read_run.py` is the reference reader.
 
 ## What M3b does (built; the design is in `SPEC.md` 4e and 11, the user's manual is `docs/14-neuron-models.md`)
 

@@ -214,6 +214,28 @@ static int write_slice(hid_t dset, hid_t memtype, int64_t first, int64_t count, 
 /* Opening and closing                                                 */
 /* ------------------------------------------------------------------ */
 
+/*
+ * The metadata cache, capped.  HDF5 keeps the index of a dataset's chunks (a B-tree, one node per 64 chunks) in its
+ * metadata cache, which by default may grow to 32 MB; and it counts an entry by its size on disk (about 2 KB for a
+ * node), while the node takes about 7 KB in memory.  So a long recording grew by about 10 KB per second at 100 kHz
+ * on two inputs, for as long as the trial lasted (measured with malloc_history, 2026-11-19).  With the cache capped
+ * at 256 KB (as counted by HDF5) the memory of a 40-minute recording at 100 kHz stays flat, at the same speed: only
+ * the last nodes of the index are written to, so only they need to be in memory.
+ */
+#define LCG2_MDC_MAX (256 * 1024)
+
+static int cap_metadata_cache(hid_t fapl)
+{
+    H5AC_cache_config_t c;
+    c.version = H5AC__CURR_CACHE_CONFIG_VERSION;
+    if (H5Pget_mdc_config(fapl, &c) < 0) return -1;
+    c.max_size = LCG2_MDC_MAX;
+    if (c.min_size > c.max_size) c.min_size = c.max_size;
+    if (c.initial_size > c.max_size) c.initial_size = c.max_size;
+    c.set_initial_size = 1;
+    return H5Pset_mdc_config(fapl, &c) < 0 ? -1 : 0;
+}
+
 int record_open(Recorder **out, const RecorderInit *in, Err *err)
 {
     Recorder *r = (Recorder *)calloc(1, sizeof *r);
@@ -228,7 +250,7 @@ int record_open(Recorder **out, const RecorderInit *in, Err *err)
      * here), but the readers of the owner (Ubuntu 22.04 ships 1.10.7, MATLAB and h5py bundle
      * their own) must be able to open it.  See the table above for the lower bound. */
     fapl = H5Pcreate(H5P_FILE_ACCESS);
-    if (fapl < 0 || H5Pset_libver_bounds(fapl, LCG2_LIBVER_LOW, H5F_LIBVER_V110) < 0) {
+    if (fapl < 0 || H5Pset_libver_bounds(fapl, LCG2_LIBVER_LOW, H5F_LIBVER_V110) < 0 || cap_metadata_cache(fapl) < 0) {
         hfail(err, in->path, "set the file format", "of the file");
         if (fapl >= 0) H5Pclose(fapl);
         free(r);

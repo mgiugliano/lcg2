@@ -2,7 +2,7 @@
 
 > **Status: built (milestone M4).** Everything on this page is what `lcg2` writes today, on the
 > simulator. A board changes nothing in the layout: only `device` and the values differ.
-> The layout is tested by `tests/test_record.py` (104 checks, with h5py), and
+> The layout is tested by `tests/test_record.py` (105 checks, with h5py), and
 > [`examples/read_run.py`](../examples/read_run.py) is a reader that is part of that test.
 
 Every run that plays at least one trial leaves two things in the **current folder**:

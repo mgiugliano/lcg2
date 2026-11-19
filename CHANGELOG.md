@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: a long recording grew in memory, about 0.6 MB per minute at 100 kHz on two inputs.** HDF5 kept the whole
+  index of a trial's chunks in its metadata cache, which counts an index node by its size on disk (2 KB) while it
+  takes about 7 KB in memory, so its 32 MB default allowed over 100 MB. The cache is now capped (256 KB as HDF5
+  counts it): a recording of 40 minutes at 100 kHz stays at 28 MB (Mac footprint; 11 MB resident on Ubuntu), at the
+  same speed, and the full-disk and `kill -9` measurements are unchanged (12 of 12 files open; 40 of 40 kills
+  readable). Found with `malloc_history`; a new test compares 8 and 20 minutes.
+- **Measured, not changed:** a protocol costs about 4 KB of memory per trial for the whole run (its expanded trial list,
+  held from the check on): 0.4 MB for 100 trials, about 23 MB for a live session of 6000 pulses.
+
 ## 0.4.0 (2026-11-19)
 
 - **Fixed: a crash in a long trial lost the whole trial.** The data file is now flushed about once a second of data

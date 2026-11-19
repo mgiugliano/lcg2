@@ -273,6 +273,30 @@ def test_variants(tmp):
 # --------------------------------------------------------------------------
 # 3. Record only, and the streaming layout
 # --------------------------------------------------------------------------
+def peak_mb(args, cwd):
+    """Run lcg2 and return (exit status, its own peak resident memory in MB)."""
+    p = subprocess.Popen([LCG2] + args, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _, status, ru = os.wait4(p.pid, 0)
+    p.returncode = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else status >> 8
+    return p.returncode, ru.ru_maxrss / (1048576.0 if sys.platform == "darwin" else 1024.0)
+
+
+def test_memory(tmp):
+    # A long recording must not grow in memory: HDF5's index of the chunks used to stay in memory (about 10 KB per
+    # second at 100 kHz on two inputs, so +7 MB from 8 to 20 minutes).  Capped, the index cache fills in its first five
+    # minutes or so and then stays as it is: both runs are past that.  The outputs rest at non-zero values, so that
+    # every page that is held is really in memory (pages of zeros are not counted by macOS).
+    cfg = os.path.join(tmp, "mem.ini")
+    open(cfg, "w").write(open(CFG).read().replace("[out P2]\nline = ao1", "[out P2]\nline = ao1\nrest = 100"))
+    d1, d2 = newdir(tmp, "mem8"), newdir(tmp, "mem20")
+    r1, m1 = peak_mb(["-q", "-c", cfg, "-r", "100kHz", "-t", "480s"], d1)
+    os.remove(h5_of(d1))                                    # (150 MB of data: not kept)
+    r2, m2 = peak_mb(["-q", "-c", cfg, "-r", "100kHz", "-t", "1200s"], d2)
+    os.remove(h5_of(d2))                                    # (380 MB)
+    check("memory: 20 minutes at 100 kHz take no more memory than 8 minutes (%.1f MB against %.1f MB)" % (m2, m1),
+          r1 == 0 and r2 == 0 and m2 - m1 < 1.5, (r1, r2, m1, m2))
+
+
 def test_record_only(tmp):
     d = newdir(tmp, "rec")
     r = rt(["-c", CFG, "-r", "20kHz", "-t", "2s"], d, driver=["--noise", "0"])
@@ -777,7 +801,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_record_")
     print("(h5py %s, HDF5 %s)" % (h5py.__version__, h5py.version.hdf5_version))
     try:
-        for fn in (test_layout, test_variants, test_record_only, test_folder, test_names, test_setup, test_space, test_reader, test_abort,
+        for fn in (test_layout, test_variants, test_record_only, test_memory, test_folder, test_names, test_setup, test_space, test_reader, test_abort,
                    test_kill, test_disk_full, test_hdf5_silent):
             sub = newdir(tmp, fn.__name__)
             fn(sub)

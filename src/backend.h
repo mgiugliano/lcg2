@@ -94,6 +94,16 @@ struct Backend {
 
     void (*close)(Backend *be);
 
+    /* Live mode (-L): something the experimenter did now ("contact", "suction", "break_in", "zap",
+     * "hold"), between two blocks of a trial or between trials.  Returns 1 if it was applied, 0 if it
+     * did nothing (said tells why), -1 on an error.  t_ms, on the way in, is when it happened on the run's
+     * clock (ms from the start of the first trial); on the way out, when it was applied in the cells' time
+     * (the same, unless the cells had already been simulated past it: then at once); stage is where the pipette is now ("bath", ..., "whole_cell"), cell its [cell].
+     * "query" changes nothing: it fails (-1) if there is no pipette to act on.  NULL for a
+     * backend that has nothing to act on (the loopback simulator). */
+    int  (*event)(Backend *be, const char *what, char *said, size_t n_said, double *t_ms,
+                  char *stage, size_t n_stage, char *cell, size_t n_cell, Err *err);
+
     void *impl;                          /* the backend's own state */
 };
 

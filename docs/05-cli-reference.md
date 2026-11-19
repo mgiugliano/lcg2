@@ -33,6 +33,7 @@ Exactly one of these three must be given: a stimulus file, `-e`, or `-t`.
 | `-p` | `PREFIX` | prefix of the output file names. Letters, digits, `_`, `-`, `.`; must not start with `.` or contain a slash. |
 | `-n` | | dry run: check everything, print the plan on stdout, play nothing. |
 | `-R` | | real time: the simulator waits as a real board would. The default is virtual time (as fast as possible, with exact simulated times). |
+| `-L` | | live patching, in real time (it implies `-R`): keys typed in the terminal act on a patching pipette while the seal test runs (c touch the cell, s suction, b suction pulse, z zap, h holding 0/−70 mV, q stop), and the readout is one line rewritten after each pulse. `q` ends the run normally (exit status 0). Needs a terminal on standard input, `device = neuron`, voltage clamp (`-m vc`) and a patching pipette; see [16, tutorial L](16-neuron-tutorials.md#l-patching-a-cell-from-the-bath-to-whole-cell). |
 | `-q` | | quieter (progress will be reduced). Cannot be used with `-v`. |
 | `-v` | | more verbose. With `-n` it also prints the resolved configuration. |
 | `-h` | | print the help. |

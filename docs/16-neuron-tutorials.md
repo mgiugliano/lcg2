@@ -736,9 +736,37 @@ some cells than in others (`access_drift_per_10min` in `network.json`): repeat t
 follow Ra. Set `cp_compensation = 0` and see the pipette's capacitive spike at every step of the seal test, as before you turn that
 knob on a rig.
 
-**Where this stops.** The timeline is written in the configuration: you do not press the suction yourself yet (a live mode is the
-next step). A run is in one mode, so whole-cell current clamp is a second run of the same cell (`-P whole_cell`, same seed). Series
-resistance compensation is not available on a patching pipette yet.
+### Patch it yourself: live mode
+
+So far the timeline was written in the file. With `-L` you do it, with keys, in real time, while the seal test runs (the profile `live`
+removes the timeline; [`seal_test_live.sg`](../examples/student_kit/seal_test_live.sg) pulses for up to ten minutes):
+
+```text
+lcg2 -L -m vc -P live -c examples/student_kit/rig_patch.ini examples/student_kit/seal_test_live.sg
+```
+
+**c** touch the cell, **s** suction, **b** a suction pulse to break in, **z** a zap, **h** the holding potential (0 or −70 mV), **q**
+stop. The readout is one line that changes after every pulse; what each key did is printed above it. A session looks like this:
+
+```text
+lcg2: live: c touch the cell, s suction, b suction pulse (break in), z zap, h holding 0/-70 mV, q stop
+lcg2: 0.11 s  touch
+lcg2: 0.62 s  suction
+lcg2: 4.13 s  holding -70 mV
+lcg2: 5.06 s  suction pulse
+lcg2: 5.66 s  suction pulse
+lcg2: 6.29 s  nothing: already in whole-cell
+lcg2: P1  R 242.84 MOhm: Ra 10.98 MOhm, Rm 231.9 MOhm, Cm 12.87 pF (tau 135 us), I hold -136.8 pA  [holding -70 mV]
+```
+
+Follow the resistance as you would at the rig: touch, wait for the small rise, suction, wait for the gigaseal, go to −70 mV, then break
+in, and press **b** again if the first pulse did not do it (the readout tells you: still gigaohms). The same seed is the same cell, so
+you can practise on it, or change `patch_seed` for another. Press **q** when you are done: the run ends normally and the data are in the
+file as always. The run folder has `live_replay.ini`, your session as a timeline: copy its section into `rig_patch.ini` and run
+`-P live_replay` without `-L` to play it again, at full speed.
+
+**Where this stops.** A run is in one mode, so whole-cell current clamp is a second run of the same cell (`-P whole_cell`, same seed).
+Series resistance compensation is not available on a patching pipette yet.
 
 ---
 

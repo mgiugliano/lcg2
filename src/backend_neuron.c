@@ -389,7 +389,10 @@ static int nrn_play(Backend *be, Clock *clk, const Config *cfg, const Drive *d,
         json_free(rep);
     }
 
-    t_start = clock_now(clk);
+    /* The trial starts, in the cells' time, where the pause ended: at `now`.  Taking the clock again here would
+     * leave out the time spent simulating the pause, and in real time (-R) the cells would fall behind the
+     * clock by that much at every trial. */
+    t_start = now;
     while (first < d->n) {
         int64_t count = d->n - first < nb ? d->n - first : nb, end_ns, i;
         int r;
@@ -443,6 +446,29 @@ done:
     return rc;
 }
 
+static int nrn_event(Backend *be, const char *what, char *said, size_t n_said, double *t_ms,
+                     char *stage, size_t n_stage, char *cell, size_t n_cell, Err *err)
+{
+    Nrn *s = (Nrn *)be->impl;
+    char line[200];
+    Json *rep;
+    int r, applied;
+    if (!s->up || s->broken) return err_set(err, "the NEURON adapter is not available");
+    /* what: a fixed word, from run.c; *t_ms on the way in: when it happened on the run's clock */
+    snprintf(line, sizeof line, "{\"op\":\"event\",\"what\":\"%s\",\"t_ms\":%.17g}", what, *t_ms);
+    if (send_line(s, line, err) < 0) return -1;
+    r = read_reply(s, s->o.block_timeout_s, &rep, err);
+    if (r == 1) { s->broken = 1; return err_set(err, "interrupted"); }
+    if (r < 0) return -1;
+    applied = json_get(rep, "applied") && json_get(rep, "applied")->type == J_BOOL && json_get(rep, "applied")->boolean;
+    snprintf(said, n_said, "%s", json_str_or(rep, "said", ""));
+    snprintf(stage, n_stage, "%s", json_str_or(rep, "stage", ""));
+    snprintf(cell, n_cell, "%s", json_str_or(rep, "cell", ""));
+    *t_ms = json_num_or(rep, "t_ms", 0.0);
+    json_free(rep);
+    return applied;
+}
+
 static void nrn_close(Backend *be)
 {
     Nrn *s = (Nrn *)be->impl;
@@ -473,7 +499,7 @@ Backend *neuron_backend_new(const NeuronOpts *opts)
     s->to = s->from = -1;
     be->name = "NEURON simulator";
     be->open = nrn_open; be->set_rest = nrn_set_rest; be->wait_trigger = nrn_wait_trigger;
-    be->play = nrn_play; be->close = nrn_close;
+    be->play = nrn_play; be->close = nrn_close; be->event = nrn_event;
     be->impl = s;
     return be;
 }

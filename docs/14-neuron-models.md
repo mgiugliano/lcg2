@@ -1,7 +1,7 @@
 # 14. Virtual cells: patching on the NEURON simulator
 
 > **Status: built (milestone M3b), with a pipette and amplifier model since 0.2 (seal, junction potential and bandwidth since 0.3).** `device = neuron` works with NEURON 8.2.6 (Mac,
-> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (159 checks). The numerical result
+> Python 3.11) and NEURON 9.0.2 (Ubuntu 22.04, Python 3.10). It is tested by `tests/test_neuron.py` (176 checks). The numerical result
 > equals a plain NEURON script to 1e-9 mV (see [How a trial is simulated](#how-a-trial-is-simulated)).
 
 **The idea.** Everything you do on the real rig you do here, with the same command line, the same
@@ -96,7 +96,7 @@ electrode (voltage only).
 | `same_as` | the cell of an earlier `[cell]`: a **second electrode on the same cell** (give it its own `electrode` and electrode keys) |
 | the electrode and amplifier keys | `electrode_resistance`, `electrode_capacitance`, `recording_noise`, `noise_seed`, `bridge_balance`, `cap_neutralization`, `rs_compensation`, `rs_lag`, `cp_compensation`, `seal_resistance`, `liquid_junction_potential`, `amplifier_bandwidth`: see [The pipette and the amplifier](#the-pipette-and-the-amplifier) |
 | `d_lambda` | morphology only: the *d_lambda* rule for the number of segments (default 0.1; 0 keeps what the file gives) |
-| the patching keys | `pipette_resistance`, `pipette_capacitance`, `access_resistance`, `seal_target`, `patch_resistance`, `patch_capacitance`, `patch_seed`, `seal_failure`, `break_in_success`, `pipette_offset`, `patch_start`, `patch_contact`, `patch_suction`, `patch_break_in`: see [Patching](#patching-from-the-bath-to-whole-cell). They are reserved: a model cannot have a parameter of these names |
+| the patching keys | `pipette_resistance`, `pipette_capacitance`, `access_resistance`, `seal_target`, `patch_resistance`, `patch_capacitance`, `patch_seed`, `seal_failure`, `break_in_success`, `pipette_offset`, `patch_start`, `patch_contact`, `patch_suction`, `patch_break_in`, `patch_zap`, `zap_success`, `patch_holding`: see [Patching](#patching-from-the-bath-to-whole-cell). They are reserved: a model cannot have a parameter of these names |
 | anything else | a **parameter of the model**: passed to your model, and an error if the model does not take it |
 
 Relative paths start in the **folder of the configuration file** (not in the folder you run from), so a
@@ -279,6 +279,9 @@ bath, touches the cell, seals, and breaks in, on a timeline written in the confi
 | `patch_start` | `bath`, `cell_attached`, `whole_cell` | `bath` | where the pipette is when the run starts |
 | `patch_contact`, `patch_suction` | time | none | when the tip touches the cell; when suction starts the seal |
 | `patch_break_in` | times | none | suction pulses to break the patch, one or more (`14s, 16s`) |
+| `patch_zap` | times | none | zaps (a voltage pulse) to break the patch, one or more |
+| `zap_success` | probability | 0.5 | how often one zap breaks the patch |
+| `patch_holding` | time and mV, pairs | none | the amplifier's own holding potential, added to the command from those times on (`10s -70, 30s 0`); voltage clamp |
 
 Also allowed: `recording_noise`, `noise_seed`, `amplifier_bandwidth`, `liquid_junction_potential`, `cp_compensation`, and in current
 clamp `bridge_balance` and `cap_neutralization`. Refused with a message: the plain electrode's `electrode_resistance`,
@@ -309,6 +312,37 @@ break-in attempt works, Ra (lognormal around `access_resistance`, σ 0.25, at le
 current clamp, which is how you record from a cell in both (a run is in one mode: run again with `patch_start = whole_cell`). The values
 drawn are kept in `network.json` of the run folder (`patch_truth`) and never shown by `-n` or the run, so that you measure them.
 These distributions and probabilities are LCG2's choices, written in [SPEC](../SPEC.md) §4g.
+
+### Live mode
+
+`lcg2 -L` (live patching, in real time) runs the seal test while you act on the pipette with keys, as at a rig: **c** touch the cell,
+**s** suction, **b** a suction pulse (break in), **z** a zap, **h** the holding potential (0 or −70 mV, the amplifier's own, added to
+the command), **q** stop. The readout is one line, rewritten after each pulse; what a key did is printed above it, and a key that
+cannot act says why (`nothing: suction in the bath does nothing: touch the cell first (c)`). It needs a terminal on standard input,
+`device = neuron`, voltage clamp (`-m vc`: the live readout is the seal test) and a patching pipette (the first one in the file is the
+one the keys act on).
+
+A key is an event at the time it was pressed on the run's clock, scheduled in the cells' time at that moment; if the cells have
+already been simulated past it (a block of 0.1 s is simulated ahead and played on time), it acts at once. A key is read between two
+blocks, so within a tenth of a second. The k-th suction pulse (or zap) uses the k-th draw of the seed, exactly as the k-th time of
+`patch_break_in` (or `patch_zap`) of a scripted timeline, so a session can be **replayed**: the run folder gets `live_replay.ini`, a
+`[profile live_replay]` with the session's events as timeline keys; copy it into the configuration and run without `-L`, with
+`-P live_replay`. The replay has the same events at the same simulated times and gives the same resistance at the same simulated
+time (tested: to 0.02 % wherever the resistance changes slowly between pulses, exactly once it is stable). The profile also gives the
+session's `patch_seed` and `patch_start`, so that a session run with another profile replays as the same cell; use the same configuration
+file, since nothing else is in the profile. Its trials start on time, while in real time each started
+a millisecond or two late and, with `period`, those delays add up (the log lists them): a pulse of the replay is not the pulse of the
+same number in the session. `q` ends the run normally (exit status 0): the trial in progress is kept, marked incomplete. Ctrl-C still
+aborts (exit status 2).
+
+**Speed.** Live mode needs a computer that simulates the seal test faster than real time. Simulating one period of
+`seal_test_live.sg` (a 20 ms pulse at 100 kHz and an 80 ms pause, at `sim_dt = 5us`) takes about 23 ms on the Mac of the
+tested-versions table and 75 ms on the Ubuntu machine. Measured end to end (`-R`, 200 pulses, the data file written as it goes), every
+pulse starts a little late, by a delay that stays the same and does not grow: 4.6 ms (median; at most 10.6 ms) on the Mac, 1.4 ms (at
+most 1.9 ms) on Ubuntu, so the pulses come at 9.6 and 9.9 a second instead of 10. On a computer slower than real time every pulse
+would start later than the one before, and the readout would update less and less often: the session still works and is still
+exact. A pause with only patching pipettes runs in NEURON's own loop, refreshing the circuit every millisecond and exactly at every
+event (3 times faster than step by step).
 
 **The membrane test.** `membrane_test = yes` in an `[in]` (voltage clamp, a command in mV on the `[out]` of the same name, a current in pA)
 makes LCG2 measure every trial as an amplifier's seal-test window does, print it and keep it (attributes of the input's dataset,
@@ -351,6 +385,9 @@ file has `device = neuron` and `virtual_time = 1`.
 | `a patching pipette (pipette_resistance) has its own keys ...` | a key of the plain electrode on a patching pipette |
 | `suction needs a contact before it` / `break_in needs a suction before it` / `the times must increase` | the timeline is out of order |
 | `... belongs to a patching pipette: give pipette_resistance too` | a patching key on a cell without a patching pipette |
+| `-L (live patching) needs a terminal: the keys are read from standard input` | `-L` with standard input redirected; nothing was written |
+| `-L (live patching) runs the voltage-clamp seal test: give -m vc` | `-L` in current clamp; nothing was written |
+| `-L (live patching) needs device = neuron and a patching pipette ...` / `live mode needs a patching pipette ...` | `-L` with the loopback, or without `pipette_resistance` |
 | `no membrane test: it needs voltage clamp (-m vc), a command in mV ...` | `membrane_test = yes` in current clamp, or without a command in mV |
 
 You can also check a configuration **without lcg2**, which is handy when you write a model:
@@ -370,7 +407,8 @@ $ python3.11 neuron/lcg2_neuron.py --check examples/models/t1.ini
   accurate to about the step over their time constant (the lagged compensation of a 10 MΩ, 90 % clamp is within 1.2 % of the exact
   solution). The simulation is stable only while Re × C(membrane under the electrode) exceeds `sim_dt` (the program says so and
   gives the smallest Re).
-* **Patching** follows a timeline written in the configuration (no live suction yet); a run is in one mode; no series-resistance
+* **Patching:** a run is in one mode (whole-cell current clamp is a second run of the same cell); in live mode a key acts within a
+  tenth of a second, and only the first patching pipette has keys; no series-resistance
   compensation on a patching pipette; the patch is passive (no single channels).
 * **Not dynamic clamp.** The command is a recorded stimulus, fixed before the trial.
 * Digital outputs are not connected to anything (no cell has a digital input); they are recorded in the file as

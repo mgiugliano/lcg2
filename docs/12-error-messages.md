@@ -157,6 +157,9 @@ Idle values of skipped outputs are not checked.
 | `start on trigger: no trigger line is configured; press Enter to start` | not an error: the prompt | press Enter, or add `trigger = PFIn` |
 | `aborted after N of M trial(s): outputs at rest` | Ctrl-C or kill; exit status 2 | the outputs were put at rest |
 | `warning: trial 0003: input P1: N samples beyond the range of 1 V (clamped)` | an input would exceed its range | raise the `range` of that `[in]`, or lower the stimulus |
+| `-L (live patching) needs a terminal: the keys are read from standard input` | `-L` with standard input redirected (a script, a pipe); nothing was written | run it in a terminal |
+| `-L (live patching) runs the voltage-clamp seal test: give -m vc` | `-L` in current clamp; nothing was written | add `-m vc` |
+| `-L (live patching) needs device = neuron and a patching pipette (pipette_resistance in a [cell])` | `-L` with the loopback simulator | use a NEURON rig with a patching pipette |
 | `P1: no membrane test: it needs voltage clamp (-m vc), a command in mV on [out P1] and a current in pA on [in P1]` | a note, not an error: `membrane_test = yes` in a run where it cannot work; the run goes on | run in voltage clamp |
 | `P1: pipette offset nulled in the bath (junction potential +12 mV): once in the cell, potentials read 12 mV higher than they are` | a note when a run with a patching pipette starts | subtract the junction potential from the potentials you report |
 | `ERROR: the outputs may NOT be at rest: ...` | putting the outputs at rest failed (shown even with `-q`); exit status 2 | check the outputs by hand before touching anything |

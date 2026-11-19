@@ -394,7 +394,8 @@ ELECTRODE_KEYS = ("electrode_resistance", "electrode_capacitance", "recording_no
 CELL_KEYS = ("model", "template", "morphology", "biophysics", "init", "mechanisms", "electrode", "d_lambda",
              "series_resistance", "same_as") + ELECTRODE_KEYS + ("pipette_resistance", "pipette_capacitance",
              "access_resistance", "seal_target", "patch_resistance", "patch_capacitance", "patch_seed", "seal_failure",
-             "break_in_success", "pipette_offset", "patch_start", "patch_contact", "patch_suction", "patch_break_in")
+             "break_in_success", "pipette_offset", "patch_start", "patch_contact", "patch_suction", "patch_break_in",
+             "patch_zap", "zap_success", "patch_holding")
 
 
 def build_cell(h, name, spec, base, loaded_mech):
@@ -816,11 +817,12 @@ class VCElectrode(object):
 
 PATCH_KEYS = ("pipette_resistance", "pipette_capacitance", "access_resistance", "seal_target", "patch_resistance",
               "patch_capacitance", "patch_seed", "seal_failure", "break_in_success", "pipette_offset", "patch_start",
-              "patch_contact", "patch_suction", "patch_break_in")
+              "patch_contact", "patch_suction", "patch_break_in", "patch_zap", "zap_success", "patch_holding")
 PATCH_DIALS = ("recording_noise", "noise_seed", "amplifier_bandwidth", "liquid_junction_potential", "cp_compensation",
                "bridge_balance", "cap_neutralization")
 PATCH_STAGES = ("bath", "cell_attached", "whole_cell")
 OPEN_TIP = 1e-6         # MOhm: the open tip to the bath (a conductance of 1e6 uS, solved implicitly)
+PAUSE_REFRESH_MS = 1.0  # in a pause the circuit is refreshed this often (the seal changes over seconds): live mode's speed
 
 
 def times_of(text, what):
@@ -829,6 +831,21 @@ def times_of(text, what):
     if not out:
         raise Problem("%s: give a time, such as 2s" % what)
     if any(b <= a for a, b in zip(out, out[1:])):
+        raise Problem("%s: the times must increase (%s)" % (what, text))
+    return out
+
+
+def holding_of(text, what):
+    """'10s -70, 30s 0' -> [(10000.0, -70.0), (30000.0, 0.0)]: the amplifier's holding potential (mV) from those times on."""
+    out = []
+    for item in str(text).split(","):
+        parts = item.split()
+        if not parts:
+            continue
+        if len(parts) != 2:
+            raise Problem("%s: give pairs of a time and a potential in mV, such as 10s -70, 30s 0 (not '%s')" % (what, item.strip()))
+        out.append((number(parts[0], what, MS), number(parts[1], what, {"mV": 1.0})))
+    if any(b[0] <= a[0] for a, b in zip(out, out[1:])):
         raise Problem("%s: the times must increase (%s)" % (what, text))
     return out
 
@@ -854,14 +871,14 @@ def patch_spec(name, spec):
              rpatch=g("patch_resistance", "GOhm", {"GOhm": 1.0}, 10.0, 0.01) * 1000.0,
              cpatch=g("patch_capacitance", "pF", {"pF": 1.0}, 0.05),
              seed=int(g("patch_seed", "integer", None, 1)), p_fail=g("seal_failure", "probability", None, 0.15),
-             p_break=g("break_in_success", "probability", None, 0.7))
+             p_break=g("break_in_success", "probability", None, 0.7), p_zap=g("zap_success", "probability", None, 0.5))
     p["access"] = g("access_resistance", "MOhm", R, 2.5 * p["rp"])
     if p["access"] <= p["rp"]:
         raise Problem("%saccess_resistance (%g MOhm) must be larger than pipette_resistance (%g MOhm): after the break-in the "
                       "access is the pipette plus what is left of the patch" % (w, p["access"], p["rp"]))
-    for k in ("p_fail", "p_break"):
+    for k, key in (("p_fail", "seal_failure"), ("p_break", "break_in_success"), ("p_zap", "zap_success")):
         if p[k] > 1:
-            raise Problem("%s%s is a probability, between 0 and 1 (it is %g)" % (w, {"p_fail": "seal_failure", "p_break": "break_in_success"}[k], p[k]))
+            raise Problem("%s%s is a probability, between 0 and 1 (it is %g)" % (w, key, p[k]))
     off = str(spec.get("pipette_offset", "null")).strip()
     if off not in ("null", "none"):
         raise Problem("%spipette_offset is null (nulled in the bath, as you do on a rig) or none, not '%s'" % (w, off))
@@ -874,30 +891,37 @@ def patch_spec(name, spec):
     p["contact"] = times_of(spec["patch_contact"], w + "patch_contact")[0] if given("patch_contact") else None
     p["suction"] = times_of(spec["patch_suction"], w + "patch_suction")[0] if given("patch_suction") else None
     p["break_in"] = times_of(spec["patch_break_in"], w + "patch_break_in") if given("patch_break_in") else []
+    p["zap"] = times_of(spec["patch_zap"], w + "patch_zap") if given("patch_zap") else []
+    p["holding"] = holding_of(spec["patch_holding"], w + "patch_holding") if given("patch_holding") else []
     if start != "bath" and (p["contact"] is not None or p["suction"] is not None):
         raise Problem("%spatch_contact and patch_suction belong to a pipette that starts in the bath (patch_start = %s)" % (w, start))
-    if start == "whole_cell" and p["break_in"]:
-        raise Problem("%spatch_break_in: the pipette starts in whole-cell (patch_start = whole_cell), there is no patch to break" % w)
+    if start == "whole_cell" and (p["break_in"] or p["zap"]):
+        raise Problem("%spatch_break_in, patch_zap: the pipette starts in whole-cell (patch_start = whole_cell), there is no patch "
+                      "to break" % w)
     if p["suction"] is not None and (p["contact"] is None or p["suction"] < p["contact"]):
         raise Problem("%spatch_suction needs a patch_contact before it (the tip must touch the cell first)" % w)
-    if p["break_in"] and start == "bath" and (p["suction"] is None or p["break_in"][0] < p["suction"]):
-        raise Problem("%spatch_break_in needs a patch_suction before it (a seal first, then the break-in)" % w)
+    for key in ("break_in", "zap"):
+        if p[key] and start == "bath" and (p["suction"] is None or p[key][0] < p["suction"]):
+            raise Problem("%spatch_%s needs a patch_suction before it (a seal first, then the break-in)" % (w, key))
 
     # what this pipette and this cell turn out to be: drawn in a fixed order, whatever is used
     rng = random.Random("%d:%s" % (p["seed"], name))
     u = [rng.random() for _ in range(8)]
     g_seal, g_ra = rng.gauss(0.0, 1.0), rng.gauss(0.0, 1.0)
     attempts = [rng.random() for _ in range(32)]
+    zaps = [rng.random() for _ in range(32)]
+    p["attempts"], p["zaps"] = attempts, zaps
+    p["n_break"], p["n_zap"] = len(p["break_in"]), len(p["zap"])       # the next attempt of each kind uses the next draw
     formed = u[1] >= p["p_fail"]
     t = dict(contact_increase=0.1 + 0.2 * u[0], seal_formed=formed,
              seal_MOhm=p["seal"] * math.exp(0.35 * g_seal) if formed else math.exp(math.log(50) + u[2] * math.log(10)),
              seal_tau_ms=1000.0 + 3000.0 * u[3], access_MOhm=max(1.2 * p["rp"], p["access"] * math.exp(0.25 * g_ra)),
              access_drift_per_10min=0.5 * u[4])
     t["break_in_ms"] = None
-    for k, tb in enumerate(p["break_in"]):
-        if attempts[k] < p["p_break"]:
-            t["break_in_ms"] = tb
-            break
+    ok = [tb for k, tb in enumerate(p["break_in"]) if attempts[k] < p["p_break"]] + \
+         [tz for k, tz in enumerate(p["zap"]) if zaps[k] < p["p_zap"]]
+    if ok:
+        t["break_in_ms"] = min(ok)
     p["truth"] = t
     return p
 
@@ -907,6 +931,7 @@ class PatchElectrode(object):
 
     def __init__(self, h, rec, es, ps, kind, t0_ms):
         self.h, self.kind, self.es, self.ps, self.t0 = h, kind, es, ps, t0_ms
+        self.name = rec["name"]
         self.model = True
         seg = rec["seg"]
         self.vref = seg._ref_v
@@ -938,9 +963,65 @@ class PatchElectrode(object):
         self.cmd, self.vprev, self.dv = 0.0, None, 0.0
         self.clamp = None
         self.stage = ""
-        self.e, self.next_ms = 0.0, -1e300
-        # the circuit changes over milliseconds to seconds: it is updated every REFRESH_MS, and exactly at every event
-        self.events = sorted(x for x in [ps["contact"], ps["suction"], ps["truth"]["break_in_ms"]] if x is not None)
+        self.e, self.next_ms, self.hold = 0.0, -1e300, 0.0
+        self.schedule()
+
+    def schedule(self):
+        """The circuit changes over milliseconds to seconds: it is updated every REFRESH_MS, and exactly at every event."""
+        ps = self.ps
+        self.events = sorted(x for x in [ps["contact"], ps["suction"], ps["truth"]["break_in_ms"]] + [t for t, _v in ps["holding"]]
+                             if x is not None)
+        self.next_ms = -1e300
+
+    def holding_at(self, t_ms):
+        v = 0.0
+        for t, x in self.ps["holding"]:
+            if t <= t_ms + 1e-9:
+                v = x
+        return v
+
+    def stage_at(self, t_ms):
+        return self.state(t_ms)[4]
+
+    def event(self, what, t_ms):
+        """A key pressed in live mode, at run time t_ms.  Returns (applied, a few words).  What is applied is what a scripted
+        timeline with the same times would do: the k-th break-in (or zap) attempt uses the k-th draw, as in patch_spec."""
+        ps, tr = self.ps, self.ps["truth"]
+        stage = self.stage_at(t_ms)
+        if what == "contact":
+            if stage != "bath":
+                return False, "the tip is already on the cell"
+            ps["contact"] = t_ms
+        elif what == "suction":
+            if stage == "bath":
+                return False, "suction in the bath does nothing: touch the cell first (c)"
+            if ps["suction"] is not None or ps["start"] != "bath":
+                return False, "the seal is already formed or forming"
+            ps["suction"] = t_ms
+        elif what in ("break_in", "zap"):
+            if stage == "whole_cell":
+                return False, "already in whole-cell"
+            if stage in ("bath", "contact"):
+                return False, "no seal yet: apply suction first (s)"
+            if what == "break_in":
+                k, ok = ps["n_break"], ps["attempts"][ps["n_break"] % 32] < ps["p_break"]
+                ps["n_break"] += 1
+                ps["break_in"].append(t_ms)
+            else:
+                k, ok = ps["n_zap"], ps["zaps"][ps["n_zap"] % 32] < ps["p_zap"]
+                ps["n_zap"] += 1
+                ps["zap"].append(t_ms)
+            if ok:
+                tr["break_in_ms"] = t_ms
+        elif what == "hold":
+            new = -70.0 if self.holding_at(t_ms) == 0.0 else 0.0
+            ps["holding"].append((t_ms, new))
+            self.schedule()
+            return True, "holding %g mV" % new
+        else:
+            return False, "unknown event '%s'" % what
+        self.schedule()
+        return True, {"contact": "touch", "suction": "suction", "break_in": "suction pulse", "zap": "zap"}[what]
 
     # -- the timeline ---------------------------------------------------
     def state(self, t_ms):
@@ -981,11 +1062,12 @@ class PatchElectrode(object):
         c.setval(1, 0, -cn)
         c.setval(1, 1, cn)
         self.e = e
+        self.hold = self.holding_at(t)
         self.source()
 
     def source(self):
         if self.kind == "v":
-            self.b.x[1] = self.gp * (self.cmd - self.off + self.e)    # the source W + e through Rp
+            self.b.x[1] = self.gp * (self.cmd + self.hold - self.off + self.e)    # the source W + e through Rp
         else:
             self.b.x[1] = self.gp * self.e
             self.b.x[2] = self.cmd - self.gp * self.e                 # Icmd (nA) into A
@@ -997,7 +1079,7 @@ class PatchElectrode(object):
         rbath, gx, _cx, e, _s = self.state(self.h.t - self.t0)
         gb, gp = 1.0 / rbath, self.gp
         if self.kind == "v":
-            w = self.cmd - self.off
+            w = self.cmd + self.hold - self.off
             T = (gp * (w + e) + gx * v) / (gp + gb + gx)
             self.y.x[0], self.y.x[1] = v, T
         else:                                                     # no current: A + e = T, and T between bath and cell
@@ -1026,12 +1108,12 @@ class PatchElectrode(object):
 
     def read_v(self):
         if self.kind == "v":
-            return self.cmd                                       # the amplifier shows the potential it holds
+            return self.cmd + self.hold                           # the amplifier shows the potential it holds
         return self.y.x[2] + self.off - self.rb * self.cmd
 
     def read_i(self):
         if self.kind == "v":
-            return (self.cmd - self.off + self.e - self.y.x[1]) * self.gp * 1e3 + (self.ps["cp"] - self.cpc) * self.dv
+            return (self.cmd + self.hold - self.off + self.e - self.y.x[1]) * self.gp * 1e3 + (self.ps["cp"] - self.cpc) * self.dv
         return self.cmd * 1e3
 
 
@@ -1234,12 +1316,27 @@ class Network(object):
                 for el in els:
                     el.coarse(True)
             dt = h.dt
-            for _ in range(n):
+            if all(isinstance(el, PatchElectrode) for el in els):
+                # Patching pipettes change only at their refresh times and events, and nothing is recorded in a pause:
+                # NEURON's own loop runs from one of those times to the next (3 to 4 times faster than a Python loop,
+                # which live mode needs to keep up with the clock); the same updates at the same times as step by step
+                # (the circuit is refreshed every PAUSE_REFRESH_MS there, and exactly at every event)
+                end = h.t + n * dt
                 for el in els:
-                    el.pre(dt)
-                fadvance()
-                for el in els:
-                    el.post(dt)
+                    el.update()
+                while h.t < end - dt / 2:
+                    stop = min([end, h.t + PAUSE_REFRESH_MS] +
+                               [x + el.t0 for el in els for x in el.events if x + el.t0 > h.t + 1e-9])
+                    h.continuerun(max(stop, h.t + dt))
+                    for el in els:
+                        el.update()
+            else:
+                for _ in range(n):
+                    for el in els:
+                        el.pre(dt)
+                    fadvance()
+                    for el in els:
+                        el.post(dt)
             if self.dt_why:
                 for el in els:
                     el.coarse(False)
@@ -1435,6 +1532,18 @@ def serve():
                 if op == "advance":
                     net.advance_ms(msg["dur_ns"] / 1e6, msg["cmd"])
                     pipe.reply({"ok": True})
+                elif op == "event":
+                    pr = [el for el in net.out_el if isinstance(el, PatchElectrode)]
+                    if not pr:
+                        pipe.reply({"ok": False, "error": "live mode needs a patching pipette (pipette_resistance in a [cell])"})
+                    else:
+                        el = pr[0]
+                        # at the time on the run's clock, unless the cells were already simulated past it (then now)
+                        t = max(net.h.t - el.t0, float(msg.get("t_ms", 0.0)))
+                        applied, said = el.event(msg["what"], t) if msg["what"] != "query" else \
+                            (False, "seed %d start %s" % (el.ps["seed"], el.ps["start"]))
+                        pipe.reply({"ok": True, "applied": applied, "said": said, "t_ms": t, "cell": el.name,
+                                    "stage": el.stage_at(t)})
                 elif op == "trial":
                     net.start_trial(msg["rate_p"], msg["rate_q"])
                     pipe.reply({"ok": True})

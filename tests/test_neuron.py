@@ -1169,11 +1169,143 @@ def test_tutorial_l(tmp):
           n == 31 and abs(late + 11.5) < 0.2 and abs(i.min() + 16.1) < 0.2 and abs(b - 6.3) < 0.3)
 
 
+def test_live(tmp):
+    """Live patching (-L): keys in a terminal act on the pipette in real time; q ends the run normally; the session can
+    be replayed as a scripted timeline and gives the same resistance at the same simulated times."""
+    import pty
+    import select
+    import numpy as np
+    d = newdir(tmp, "live")
+    for f in ("rig_patch.ini", "seal_test_live.sg"):
+        p = os.path.join(KIT, f)
+        write(os.path.join(d, f), fix_py(open(p).read()) if f.endswith(".ini") else open(p).read())
+    w = newdir(tmp, "live_run")
+    # keys at times after the run has started (the first trial's line): a suction before touching does nothing
+    keys = [(0.3, b"s"), (0.5, b"c"), (1.0, b"s"), (4.5, b"h"), (5.5, b"b"), (6.1, b"b"), (6.7, b"b"), (8.0, b"q")]
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(w)
+        os.execv(LCG2, [LCG2, "-L", "-s", "1", "-m", "vc", "-P", "live", "-c", os.path.join(d, "rig_patch.ini"),
+                        os.path.join(d, "seal_test_live.sg")])
+    out, t0, started = b"", time.time(), None
+    while time.time() - t0 < 120:
+        if started is None and b"live: c touch" in out:
+            started = time.time()
+        while started is not None and keys and time.time() - started >= keys[0][0]:
+            os.write(fd, keys.pop(0)[1])
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            try:
+                b = os.read(fd, 4096)
+            except OSError:
+                break
+            if not b:
+                break
+            out += b
+    else:
+        os.kill(pid, signal.SIGKILL)
+    _, st = os.waitpid(pid, 0)
+    text = out.decode(errors="replace").replace("\x1b[K", "")
+    check("live: q ends the run normally (exit status 0) and the data are written",
+          os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0 and "lcg2: done:" in text, text[-500:])
+    for said in ("nothing: suction in the bath does nothing: touch the cell first (c)", "touch", "suction", "holding -70 mV",
+                 "suction pulse", "nothing: already in whole-cell", "q: stopping"):
+        check("live: the key is answered: %s" % said, said in text, text[-800:])
+    readouts = [l for l in re.split(r"[\r\n]+", text) if " R " in l]
+    check("live: the readout line ends in whole-cell at -70 mV (%s)" % (readouts[-1] if readouts else ""),
+          bool(readouts) and "Cm 12." in readouts[-1] and "[holding -70 mV]" in readouts[-1])
+    rep = open(glob.glob(os.path.join(folder_of(w), "live_replay.ini"))[0]).read()
+    log = open(glob.glob(os.path.join(folder_of(w), "log.txt"))[0]).read()
+    check("live: the events are logged, with the time they took effect", log.count("event  ") == 7 and "stopped with q" in log, log[-600:])
+    check("live: live_replay.ini holds the session as a scripted timeline",
+          all(("cell.P1.patch_%s" % k) in rep for k in ("contact", "suction", "break_in", "zap", "holding")) and "-70" in rep, rep)
+    # the replay: the same events at the same simulated times, in virtual time
+    f = h5py.File(h5_of(w), "r")
+    n = len([k for k in f if k.startswith("trial_")])
+    done = sum(1 for k in range(n) if not f["trial_%04d" % k].attrs["incomplete"])
+    tl = np.array([f["trial_%04d" % k].attrs["start_ns"] for k in range(done)]) / 1e6
+    tl -= tl[0]                                   # the cells' time of each pulse of the session (its trials start late)
+    nrep = int(tl[-1] / 100.0) + 1                # the replay's pulses start on time: as many as cover the same span
+    r2 = newdir(tmp, "live_replay")
+    write(os.path.join(r2, "rig.ini"), open(os.path.join(d, "rig_patch.ini")).read() + "\n" + rep)
+    write(os.path.join(r2, "s.sg"), open(os.path.join(d, "seal_test_live.sg")).read().replace("repeat   6000", "repeat   %d" % nrep))
+    rr = lcg(["-q", "-s", "1", "-m", "vc", "-P", "live_replay", "-c", "rig.ini", "s.sg"], r2)
+    g = h5py.File(h5_of(r2), "r")
+    tr_ = np.array([g["trial_%04d" % k].attrs["start_ns"] for k in range(nrep)]) / 1e6
+    rl = np.array([f["trial_%04d/ai/P1" % k].attrs["membrane_test_R_MOhm"] for k in range(done)])
+    rp = np.array([g["trial_%04d/ai/P1" % k].attrs["membrane_test_R_MOhm"] for k in range(nrep)])
+    ev = [float(x) for x in re.findall(r"([0-9.]+)ms", rep)]
+    # the session's pulses are where they are (late, by a few ms each): compare the replay with the session where the session's
+    # resistance changes by less than 2 % from one pulse to the next, so that interpolating between its pulses is accurate
+    def smooth(t):
+        i = int(np.searchsorted(tl, t)) - 1
+        return 0 <= i < len(tl) - 1 and 0.98 < rl[i + 1] / rl[i] < 1.02
+    ok = [k for k in range(nrep) if all(abs(tr_[k] - e) > 200 and abs(tr_[k] + 20 - e) > 200 for e in ev) and tr_[k] < tl[-1]
+          and smooth(tr_[k])]
+    rel = np.abs(rp[ok] / np.exp(np.interp(tr_[ok], tl, np.log(rl))) - 1)
+    check("live: the replay gives the same resistance at the same simulated time (%d of %d pulses: worst %.2f %%, median %.3f %%; "
+          "in the cell %.3f and %.3f MOhm)" % (len(ok), done, 100 * rel.max(), 100 * np.median(rel), rl[-1], rp[-1]),
+          rr.returncode == 0 and len(ok) > 10 and rel.max() < 0.005 and abs(rp[-1] / rl[-1] - 1) < 1e-4, rr.stderr[-300:])
+    check("live: live_replay.ini also gives the session's seed and start (the same cell when replayed)",
+          "cell.P1.patch_seed     = 51" in rep and "cell.P1.patch_start    = bath" in rep, rep)
+
+    # refusals, in a terminal; and the terminal is given back as it was (single keys off, echo on)
+    import termios
+
+    def in_terminal(args, cwd):
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.chdir(cwd)
+            os.execv(LCG2, [LCG2] + args)
+        out, t0 = b"", time.time()
+        while time.time() - t0 < 60:
+            r, _, _ = select.select([fd], [], [], 0.1)
+            if r:
+                try:
+                    b = os.read(fd, 4096)
+                except OSError:
+                    break
+                if not b:
+                    break
+                out += b
+        _, st = os.waitpid(pid, 0)
+        try:
+            lflag = termios.tcgetattr(fd)[3]
+            restored = bool(lflag & termios.ICANON) and bool(lflag & termios.ECHO)
+        except termios.error:
+            restored = None
+        os.close(fd)
+        return (os.WEXITSTATUS(st) if os.WIFEXITED(st) else -1), out.decode(errors="replace"), restored
+
+    w = newdir(tmp, "live_cc")
+    write(os.path.join(d, "pa.sg"), "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 100ms dc(0) }\n")    # a current: cc
+    rc, text, _ = in_terminal(["-L", "-m", "cc", "-P", "live", "-c", os.path.join(d, "rig_patch.ini"), os.path.join(d, "pa.sg")], w)
+    check("live: -L in current clamp is refused (the live readout is the voltage-clamp seal test)",
+          rc == 1 and "give -m vc" in text and not os.listdir(w), text[-300:])
+    w = newdir(tmp, "live_sim")
+    write(os.path.join(w, "sim.ini"), "[rig]\ndevice = sim\nmode = vc\n[out P1]\nline = ao0\ngain_vc = 20\nunit_vc = mV\n"
+          "[in P1]\nline = ai0\ngain_vc = 1000\nunit_vc = pA\n")
+    rc, text, restored = in_terminal(["-L", "-c", "sim.ini", os.path.join(d, "seal_test_live.sg")], w)
+    check("live: -L on the loopback simulator is refused, and the terminal is given back as it was (%s)" % restored,
+          rc != 0 and "needs device = neuron and a patching pipette" in text and restored is not False, text[-300:])
+    w = newdir(tmp, "live_nopatch")
+    write(os.path.join(w, "rig.ini"), fix_py(open(os.path.join(KIT, "rig_electrode.ini")).read()))
+    rc, text, restored = in_terminal(["-L", "-m", "vc", "-c", "rig.ini", os.path.join(d, "seal_test_live.sg")], w)
+    check("live: a NEURON rig without a patching pipette is refused, and the terminal is given back (%s)" % restored,
+          rc != 0 and "live mode needs a patching pipette" in text and restored is not False, text[-300:])
+
+    # without a terminal, -L is refused before anything is written
+    w = newdir(tmp, "live_noterm")
+    r = lcg(["-L", "-m", "vc", "-P", "live", "-c", os.path.join(d, "rig_patch.ini"), os.path.join(d, "seal_test_live.sg")], w)
+    check("live: without a terminal -L is refused, and nothing is written",
+          r.returncode == 1 and "needs a terminal" in r.stderr and not os.listdir(w), r.stderr)
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
         for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
-                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_patch, test_tutorial_l, test_kill_adapter, test_ctrl_c):
+                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_patch, test_tutorial_l, test_live, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

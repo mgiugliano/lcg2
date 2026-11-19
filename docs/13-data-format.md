@@ -33,6 +33,7 @@ creates anything (see [Disk space](#disk-space)).
 | `provenance.json` | LCG2 version, StimGen pin and library version, rate and where it came from, seed, warnings, digests (the same JSON is stored in the data file) |
 | `files/NN_name` | copies of the files the stimulus read (`use`, `file()`; a best-effort scan, see below) and, with `device = neuron`, every model, morphology, biophysics, init and `.mod` file that was read |
 | `network.json`, `neuron.log` | `device = neuron` only: the cells and synapses as they were built, and everything the adapter and NEURON printed (see [14](14-neuron-models.md)) |
+| `live_replay.ini` | `-L` only: the events of the live session as a `[profile live_replay]` of timeline keys, to replay it (see [14](14-neuron-models.md#live-mode)); the events are also lines of `log.txt` (`event  <time>ms  <what>  <said>`) |
 | `log.txt` | the log of the run, line by line, flushed as it goes |
 | `SHA256SUMS` | SHA-256 of the data file and of every item above; the data file comes first |
 

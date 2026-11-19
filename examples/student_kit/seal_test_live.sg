@@ -1,0 +1,16 @@
+sg 2 protocol
+# The seal test for live patching (lcg2 -L -m vc -P live -c rig_patch.ini seal_test_live.sg): a +5 mV pulse ten
+# times a second, for up to ten minutes; press q to stop. The holding potential is the amplifier's own, set with
+# the key h (0 or -70 mV), so the command here is only the pulse.
+repeat   6000
+period   100ms
+
+stimulus {
+    rate 100kHz
+    channel P1 unit=mV rest=0 {
+        5ms  dc(0)
+        @pulse
+        10ms dc(5)
+        5ms  dc(0)
+    }
+}

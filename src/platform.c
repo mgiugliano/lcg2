@@ -44,6 +44,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <termios.h>
 #include <unistd.h>
 #include "platform.h"
 
@@ -164,6 +165,40 @@ int platform_wait_enter(void)
         if (ferror(stdin) && errno == EINTR) { clearerr(stdin); continue; }
         return 0;                                              /* end of input */
     }
+}
+
+static struct termios term_saved;
+static int term_is_live;
+
+static void term_restore(void)
+{
+    if (term_is_live) { tcsetattr(0, TCSANOW, &term_saved); term_is_live = 0; }
+}
+
+int platform_term_live(int on)
+{
+    static int registered;
+    struct termios t;
+    if (!on) { term_restore(); return 1; }
+    if (!isatty(0) || tcgetattr(0, &term_saved) < 0) return 0;
+    if (!registered) { atexit(term_restore); registered = 1; }
+    t = term_saved;
+    t.c_lflag &= ~(tcflag_t)(ICANON | ECHO);      /* single keys, not echoed; Ctrl-C still interrupts */
+    t.c_cc[VMIN] = 0;
+    t.c_cc[VTIME] = 0;
+    if (tcsetattr(0, TCSANOW, &t) < 0) return 0;
+    term_is_live = 1;
+    return 1;
+}
+
+int platform_key(void)
+{
+    struct pollfd p;
+    unsigned char c;
+    p.fd = 0; p.events = POLLIN; p.revents = 0;
+    if (poll(&p, 1, 0) <= 0 || !(p.revents & POLLIN)) return -1;
+    if (read(0, &c, 1) != 1) return -1;
+    return c;
 }
 
 /* ------------------------------------------------------------------ */

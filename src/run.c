@@ -115,7 +115,108 @@ typedef struct {
     double    *mt_cur[CFG_MAX_IN], *mt_cmd[CFG_MAX_IN];
     int64_t    mt_n;
     int        mt_said;               /* the note that it needs voltage clamp was given */
+    /* live mode (-L): keys act on the pipette; the readout is one line that is rewritten */
+    int        live;
+    Backend   *be;
+    Clock     *clk;
+    int64_t    t0;                    /* the clock when the first trial began            */
+    int        quit;                  /* q was pressed: the run ends normally            */
+    int        checked;               /* the backend has a pipette to act on             */
+    char       line[400];             /* the last readout                                */
+    char       cell[48];
+    char       seed[40], start[40];   /* the session's patch_seed and patch_start        */
+    StrBuf     replay;                /* the events, as the keys of a scripted timeline  */
+    char       contact[40], suction[40];
+    StrBuf     breaks, zaps, holds;
+    double     hold;
 } Tee;
+
+/* Live mode: the readout line is rewritten in place; anything else is printed above it. */
+static void live_show(Tee *t)
+{
+    fprintf(stderr, "\r\033[K%s", t->line);
+    fflush(stderr);
+}
+
+static void live_say(Tee *t, const char *text)
+{
+    fprintf(stderr, "\r\033[K%s\n", text);
+    live_show(t);
+}
+
+static void sb_list(StrBuf *b, const char *item)
+{
+    sb_addf(b, "%s%s", b->n ? ", " : "", item);
+}
+
+/* The keys pressed since the last call: each is an event for the backend, said above the readout and kept
+ * for the replay. */
+static int live_keys(Tee *t, Err *err)
+{
+    int c;
+    while ((c = platform_key()) >= 0) {
+        const char *what = c == 'c' ? "contact" : c == 's' ? "suction" : c == 'b' ? "break_in" : c == 'z' ? "zap"
+                         : c == 'h' ? "hold" : NULL;
+        char said[200], stage[40], cell[48], text[400], when[40];
+        double t_ms = 0;
+        int r;
+        if (c == 'q') {
+            t->quit = 1;
+            platform_request_abort();
+            live_say(t, "lcg2: q: stopping (the trial in progress is kept, marked incomplete)");
+            return 0;
+        }
+        if (!what) {
+            if (c != '\n' && c != '\r' && c != ' ')
+                live_say(t, "lcg2: keys: c touch the cell, s suction, b suction pulse (break in), z zap, h holding 0/-70 mV, q stop");
+            continue;
+        }
+        t_ms = (double)(clock_now(t->clk) - t->t0) / 1e6;
+        r = t->be->event(t->be, what, said, sizeof said, &t_ms, stage, sizeof stage, cell, sizeof cell, err);
+        if (r < 0) return -1;
+        snprintf(when, sizeof when, "%.6fms", t_ms);
+        snprintf(text, sizeof text, "lcg2: %.2f s  %s%s%s", t_ms / 1000.0, r ? said : "nothing: ", r ? "" : said, "");
+        live_say(t, text);
+        archive_log(t->a, "event  %s  %s  %s%s", when, what, r ? "" : "nothing: ", said);
+        if (!r) continue;
+        snprintf(t->cell, sizeof t->cell, "%s", cell);
+        if (!strcmp(what, "contact")) snprintf(t->contact, sizeof t->contact, "%s", when);
+        else if (!strcmp(what, "suction")) snprintf(t->suction, sizeof t->suction, "%s", when);
+        else if (!strcmp(what, "break_in")) sb_list(&t->breaks, when);
+        else if (!strcmp(what, "zap")) sb_list(&t->zaps, when);
+        else {
+            char item[80];
+            t->hold = t->hold == 0.0 ? -70.0 : 0.0;
+            snprintf(item, sizeof item, "%s %g", when, t->hold);
+            sb_list(&t->holds, item);
+        }
+    }
+    return 0;
+}
+
+/* The replay: a profile that gives a scripted timeline the events of this session, at the same times. */
+static void live_replay(Tee *t, Archive *ar)
+{
+    StrBuf b;
+    Err e;
+    if (!t->cell[0]) return;
+    memset(&b, 0, sizeof b);
+    sb_addf(&b, "; The events of the live session %s, as a scripted timeline. To play them again, copy this section into\n"
+            "; the configuration file and run without -L, with -P live_replay (the times are those of the session: the trials\n"
+            "; of a replay start on time, so a trial that started late in the session lines up a little differently). Use the\n"
+            "; same configuration file: this section replaces the timeline, the seed and the start, and nothing else.\n"
+            "[profile live_replay]\n", ar->stem);
+    if (t->seed[0]) sb_addf(&b, "cell.%s.patch_seed     = %s\ncell.%s.patch_start    = %s\n", t->cell, t->seed, t->cell, t->start);
+    /* every timeline key, empty when the session did not use it: the profile replaces whatever the file says */
+    sb_addf(&b, "cell.%s.patch_contact  = %s\n", t->cell, t->contact);
+    sb_addf(&b, "cell.%s.patch_suction  = %s\n", t->cell, t->suction);
+    sb_addf(&b, "cell.%s.patch_break_in = %s\n", t->cell, t->breaks.n ? t->breaks.s : "");
+    sb_addf(&b, "cell.%s.patch_zap      = %s\n", t->cell, t->zaps.n ? t->zaps.s : "");
+    sb_addf(&b, "cell.%s.patch_holding  = %s\n", t->cell, t->holds.n ? t->holds.s : "");
+    if (!b.failed && archive_put(ar, "live_replay.ini", b.s, b.n, &e) < 0)
+        archive_log(ar, "warning  live_replay.ini could not be kept: %s", e.msg);
+    sb_free(&b);
+}
 
 static void mt_free(Tee *t)
 {
@@ -132,6 +233,20 @@ static int tee_begin(void *u, const TrialInfo *ti, Err *err)
     int k, j;
     int64_t i;
     mt_free(t);
+    if (t->live && !t->checked) {
+        char said[200], stage[40], cell[48];
+        double t_ms;
+        if (!t->be->event) { err_set(err, "-L (live patching) needs device = neuron and a patching pipette (pipette_resistance in a [cell])"); return -1; }
+        t_ms = 0;
+        if (t->be->event(t->be, "query", said, sizeof said, &t_ms, stage, sizeof stage, cell, sizeof cell, err) < 0) return -1;
+        t->checked = 1;
+        snprintf(t->cell, sizeof t->cell, "%s", cell);
+        if (sscanf(said, "seed %39s start %39s", t->seed, t->start) != 2) t->seed[0] = t->start[0] = 0;
+        t->t0 = clock_now(t->clk);                       /* the cells' time 0 is the start of this trial */
+        snprintf(t->line, sizeof t->line, "lcg2: %s  (%s)  waiting for the first test pulse ...", cell, stage);
+        live_say(t, "lcg2: live: c touch the cell, s suction, b suction pulse (break in), z zap, h holding 0/-70 mV, q stop");
+    }
+    if (t->live && live_keys(t, err) < 0) return -1;
     t->mt_n = ti->n;
     for (k = 0; k < ti->nin; k++) {
         const InCh *in = &t->c->in[ti->ai[k].in];
@@ -161,6 +276,7 @@ static int tee_block(void *u, int64_t first, int64_t count, const double *const 
 {
     Tee *t = (Tee *)u;
     int k;
+    if (t->live && live_keys(t, err) < 0) return -1;
     t->samples += count;
     for (k = 0; x[k]; k++)
         if (t->mt_cur[k] && first + count <= t->mt_n)
@@ -188,7 +304,8 @@ static int mt_report(Tee *t, const TrialInfo *ti, const TrialRecord *rec, Err *e
             snprintf(line, sizeof line, "%s  R %s, I hold %.1f pA", ti->ai[k].name, r, m.ihold_pa);
         archive_log(t->a, "membrane test  trial %s  %s%s%s%s", ti->name, line, m.cell ? "" : "  (", m.cell ? "" : m.why,
                     m.cell ? "" : ")");
-        if (!t->quiet) fprintf(stderr, "lcg2: trial %s  %s\n", ti->name, line);
+        if (t->live) { snprintf(t->line, sizeof t->line, "lcg2: %s  [holding %g mV]", line, t->hold); live_show(t); }
+        else if (!t->quiet) fprintf(stderr, "lcg2: trial %s  %s\n", ti->name, line);
         if (record_ai_attr(t->r, k, "membrane_test_dv_mV", m.dv_mv, err) < 0 ||
             record_ai_attr(t->r, k, "membrane_test_R_MOhm", m.r_mohm, err) < 0 ||
             record_ai_attr(t->r, k, "membrane_test_Ihold_pA", m.ihold_pa, err) < 0)
@@ -407,6 +524,17 @@ int run_execute(const RunParams *rp, Err *err)
     int64_t estimated_bytes = 0, free_bytes = -1;
     Err e2;
 
+    if (o->live) {                                   /* before anything is written: is there a terminal to read keys from? */
+        if (c->mode != MODE_VC) {
+            err_set(err, "-L (live patching) runs the voltage-clamp seal test: give -m vc");
+            return 1;
+        }
+        if (!platform_term_live(1)) {
+            err_set(err, "-L (live patching) needs a terminal: the keys are read from standard input");
+            return 1;
+        }
+        platform_term_live(0);
+    }
     if (c->device == DEV_DAQMX) {
         err_set(err, "device '%s': there is no hardware backend yet (milestone M6, and the machine "
                 "that will have the board is not decided); use device = sim", c->device_name);
@@ -547,16 +675,28 @@ int run_execute(const RunParams *rp, Err *err)
     if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
     memset(&tee, 0, sizeof tee);
     record_sink(rec, &tee.rec);
-    tee.a = &ar; tee.r = rec; tee.c = c; tee.quiet = o->quiet;
+    tee.a = &ar; tee.r = rec; tee.c = c; tee.quiet = o->quiet; tee.live = o->live; tee.be = be; tee.clk = &clock;
+    if (o->live) platform_term_live(1);              /* checked at the start: it is a terminal */
     sink.begin = tee_begin; sink.block = tee_block; sink.end = tee_end; sink.user = &tee;
     job.cfg = c; job.backend = be; job.clock = &clock; job.sink = &sink;
-    job.timing = timing; job.quiet = o->quiet;
+    job.timing = timing; job.quiet = o->quiet || o->live;     /* live: the readout line replaces the progress lines */
 
     if (!o->quiet)
         fprintf(stderr, "lcg2: running %d trial(s) on the %s, %s; writing %s\n", ntrials, be->name,
                 o->realtime ? "in real time" : "in simulated time (-R follows the clock)", ar.h5);
     status = engine_run(&job, &rep, err);
     mt_free(&tee);
+    if (o->live) {
+        platform_term_live(0);
+        fprintf(stderr, "\n");
+        if (tee.quit && status == ENGINE_ABORTED) {         /* q is the normal end of a live session */
+            status = ENGINE_OK;
+            platform_clear_abort();
+            archive_log(&ar, "note  stopped with q after %d trial(s)", rep.completed);
+        }
+        live_replay(&tee, &ar);
+        sb_free(&tee.breaks); sb_free(&tee.zaps); sb_free(&tee.holds);
+    }
     if (c->device == DEV_NEURON) neuron_archive(&ar, be, c, err->msg);
     if (c->device == DEV_NEURON) neuron_backend_free(be); else sim_backend_free(be);
 

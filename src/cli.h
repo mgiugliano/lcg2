@@ -58,6 +58,7 @@ typedef struct {
     const char *stimulus;        /* the stimulus file                      */
     int         dry, quiet, verbose;
     int         realtime;        /* -R: follow the clock, not the virtual one */
+    int         live;            /* -L: live patching (implies -R): keys act on the pipette */
 } Options;
 
 /* Read argv into o.  Returns 0 (also when -h was seen: then o->help is set

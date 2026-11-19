@@ -243,6 +243,7 @@ Tests: see [15 Testing](15-testing.md).
 | M4 recording (built) | `record.c` is the `Sink` that writes the HDF5 file as blocks arrive; `archive.c` the hidden folder, log and checksums; `run.c` the order of events; `session.c` what `main.c` did before; `sha256.c`; `platform.c` gained `mkdir`, free space, local stamp |
 | M3b NEURON (built) | `backend_neuron.c` (child process and pipes, POSIX only; `platform_spawn`, `platform_read_exact`, `platform_child_stop`) and `neuron/lcg2_neuron.py` (the adapter); see [14](14-neuron-models.md) |
 | Patching, stage 1 (built) | the patching pipette in `neuron/lcg2_neuron.py` (`PatchElectrode`, a NEURON `LinearMechanism`); the membrane test in `mtest.c` (pure C, from the recorded data), run by the sink of `run.c` when an `[in]` has `membrane_test = yes`; see [14](14-neuron-models.md#patching-from-the-bath-to-whole-cell) |
+| Patching, stage 2: live mode (built) | `-L` (`cli.c`); keys from the terminal (`platform_term_live`, `platform_key` in `platform.c`), read by the sink of `run.c` between blocks and sent through the backend's optional `event` operation (`backend.h`; `nrn_event` in `backend_neuron.c`, the adapter's `event` message); the replay profile written by `run.c` |
 | M6 DAQmx | `backend_daqmx.c`; the Mac build uses a stub `NIDAQmx.h` |
 
 ## Style

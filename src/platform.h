@@ -87,6 +87,13 @@ void platform_format_utc(int64_t wall_ns, char buf[40]);
  * of input (nobody can ever press it), -1 if interrupted by an abort request. */
 int platform_wait_enter(void);
 
+/* Live mode (-L): the terminal on standard input gives single keys, not lines, and does not echo them.
+ * platform_term_live(1) switches it (0 if standard input is not a terminal: then nothing changed),
+ * platform_term_live(0) puts it back; it is also put back at exit, whatever ends the program.
+ * platform_key() returns the next key pressed, or -1 if none is waiting (it never waits). */
+int  platform_term_live(int on);
+int  platform_key(void);
+
 /* ------------------------------------------------------------------ */
 /* A clock the engine can read and wait on                             */
 /* ------------------------------------------------------------------ */

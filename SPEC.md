@@ -454,6 +454,21 @@ channels; the contact as a resistance to the bath; the seal growing on a log sca
 residual patch capacitance; the membrane test's fit window (5 %), its refusals and the attribute names; `rs_compensation` refused on a
 patching pipette; a second run (`patch_start = whole_cell`, same seed) for whole-cell current clamp, since a run has one mode.
 
+**Stage 2, live mode (2026-11-19, the owner chose the rig set of keys and one updating line):** `-L` (implies `-R`) reads single keys
+from the terminal (raw mode, restored at exit), between blocks; c contact, s suction, b suction pulse, z zap, h holding toggle 0 / -70 mV,
+q stop (exit status 0, the trial in progress kept incomplete). A key is an `event` message to the adapter with the run-clock time of the
+press; the adapter applies it at that time in the cells' time, or at once if they were simulated past it. Refused actions are said and
+logged. New timeline keys make every key replayable: `patch_zap`, `zap_success` (0.5), `patch_holding` (pairs); the k-th suction pulse or
+zap uses the k-th draw, as in a scripted timeline (the zap draws come after all earlier draws, so stage 1 cells are unchanged). The run
+folder gets `live_replay.ini`. **Fixed with it:** in real time (`-R`) the NEURON backend let the cells fall behind the clock by the time
+spent simulating each pause (about 20 ms per trial at a 5 us step); a trial now starts, in the cells' time, where the pause ended.
+**Speed for live mode:** a pause with only patching pipettes runs in NEURON's `continuerun`, the circuit refreshed every 1 ms and
+exactly at events (a period of the live seal test: 23 ms of computing on the Mac, 75 ms on cajal, for 100 ms of real time; end to end, 200 pulses with
+`-R`: a constant delay per pulse of 4.6 ms on the Mac and 1.4 ms on cajal, not growing). `-L` needs voltage clamp; the replay profile
+also carries `patch_seed` and `patch_start`.
+**Vetoable:** the keys and their letters; the holding as a toggle between 0 and -70 mV only; `zap_success = 0.5`; keys read between blocks
+(within 0.1 s); only the first patching pipette has keys.
+
 **Found while building it:** StimGen reads a channel's `rest=` with a unit (`rest=-70mV`) in volts while the samples stay in the
 channel's unit; written without a unit it is right (docs/07). To report upstream.
 

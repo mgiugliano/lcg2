@@ -10,6 +10,14 @@
 - **Added: the membrane test** (`membrane_test = yes` in an `[in]`, voltage clamp): after every trial the seal-test resistance and
   holding current, and in whole-cell Ra, Rm and Cm from the capacitive transient, printed, logged and kept as attributes of the
   input's dataset (`src/mtest.c`, from the recorded data alone, so it will work on the rig too).
+- **Added: live patching** (`-L`, stage 2): keys act on the pipette in real time while the seal test runs (c touch, s suction, b
+  suction pulse, z zap, h holding 0/-70 mV, q stop); the readout is one updating line; the session is kept as `live_replay.ini`, a
+  profile that replays it as a scripted timeline (the same resistance at the same simulated times, tested). New timeline keys
+  `patch_zap`, `zap_success`, `patch_holding`. `seal_test_live.sg`, profile `live` in `rig_patch.ini`. Pauses with patching pipettes run
+  in NEURON's own loop (3 times faster), so that the simulation keeps ahead of the clock.
+- **Fixed: real time (`-R`) on the NEURON backend let the cells fall behind the clock** by the time spent simulating each pause
+  between trials (about 20 ms per trial with a 5 us step, so 2 s after 100 trials); a trial now starts, in the cells' time, where the
+  pause ended.
 - **Found:** StimGen reads a channel's `rest=` written with a unit in volts (docs/07); the kit writes it without a unit.
 
 Fixes from the audit of 2026-11-18, the pipette and amplifier model of the NEURON backend. Results without electrode keys are unchanged.

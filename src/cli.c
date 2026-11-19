@@ -58,6 +58,9 @@ void cli_usage(FILE *f)
 "  -n          dry run: check everything, print the plan, play nothing\n"
 "  -R          real time: a simulator waits as a real board would (the default\n"
 "              is virtual time: as fast as possible, with exact simulated times)\n"
+"  -L          live patching (real time): keys act on a patching pipette while the\n"
+"              seal test runs: c touch, s suction, b break in, z zap, h holding\n"
+"              0/-70 mV, q stop (docs/16, tutorial L)\n"
 "  -q, -v      quieter, more verbose\n"
 "  -h          this help\n"
 "\n"
@@ -123,6 +126,7 @@ int cli_parse(int argc, char **argv, Options *o, Err *err)
         switch (opt) {
         case 'n': o->dry = 1; break;
         case 'R': o->realtime = 1; break;
+        case 'L': o->live = 1; o->realtime = 1; break;
         case 'q': o->quiet = 1; break;
         case 'v': o->verbose = 1; break;
         case 'c': case 'P': case 'm': case 'r': case 's': case 'T':

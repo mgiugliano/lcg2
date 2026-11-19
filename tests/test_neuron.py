@@ -937,11 +937,243 @@ def test_physics(tmp):
     check("d_lambda counts segments with the final Ra = 300 and cm = 2 (13 segments, not 7)", m is not None and m.group(2) == "13", out)
 
 
+PATCH_RIG = """[rig]
+device = neuron
+sim_python = %(py)s
+mode = vc
+sim_dt = 5us
+[out P1]
+line = ao0
+gain_vc = 20
+unit_vc = mV
+gain_cc = 400
+unit_cc = pA
+[in P1]
+line = ai0
+gain_vc = 1000
+unit_vc = pA
+gain_cc = 100
+unit_cc = mV
+membrane_test = yes
+[cell P1]
+model = hh_soma
+gnabar = 0
+gkbar = 0
+pipette_resistance = 5
+pipette_capacitance = 4
+cp_compensation = 4
+access_resistance = 12
+seal_target = 2
+seal_failure = 0
+break_in_success = 1
+liquid_junction_potential = 12
+patch_seed = 51
+%(cell)s
+"""
+
+PULSES = """sg 2 protocol
+sweep hold = [%s]
+repeat %d
+order grouped
+period 100ms
+stimulus {
+    rate 100kHz
+    channel P1 unit=mV rest=$hold {
+        5ms  dc($hold)
+        10ms dc($(hold + 5))
+        5ms  dc($hold)
+    }
+}
+"""
+
+
+def test_patch(tmp):
+    """Patching (tutorial L): the bath, the seal, cell-attached and whole-cell against the circuit's own values, the
+    membrane test, the junction potential and the pipette offset, the action currents of a cell-attached patch."""
+    import math
+    import numpy as np
+    runs = [0]
+
+    def run(cell, stim, args=(), rig=PATCH_RIG):
+        runs[0] += 1
+        w = newdir(tmp, "patch_%d" % runs[0])
+        write(os.path.join(w, "rig.ini"), rig % dict(py=PY, cell=cell))
+        write(os.path.join(w, "s.sg"), stim)
+        r = lcg(["-s", "1"] + list(args) + ["-c", "rig.ini", "s.sg"], w)
+        if r.returncode != 0:
+            print("      run failed:", r.stderr[-400:])
+            return None, None, r
+        net = json.load(open(glob.glob(os.path.join(folder_of(w), "network.json"))[0]))
+        return h5py.File(h5_of(w), "r"), net["cells"][0].get("patch_truth"), r
+
+    def mt(f, k, key):
+        return float(f["trial_%04d/ai/P1" % k].attrs["membrane_test_" + key])
+
+    rmem, el, cm = 1.0 / (0.0003 * math.pi * 400 * 1e-8) * 1e-6, -54.3, math.pi * 400 * 0.01   # the passive soma
+    rp = 5.0
+    par = lambda a, b: a * b / (a + b)                       # noqa: E731
+    # 1. the bath, with the offset nulled: R is the pipette, and no current flows at 0 mV
+    f, tr, r = run("", PULSES % ("0", 3))
+    check("patch, bath: the seal test reads the pipette, R = %.6f MOhm (5)" % mt(f, 0, "R_MOhm"), abs(mt(f, 0, "R_MOhm") - rp) < 1e-6)
+    check("patch, bath: with the offset nulled no current flows at 0 mV (%.2e pA), although LJP is 12 mV"
+          % mt(f, 0, "Ihold_pA"), abs(mt(f, 0, "Ihold_pA")) < 1e-6)
+    check("patch, bath: the seal test prints the resistance after each trial", "R 5.00 MOhm, I hold 0.0 pA" in r.stderr, r.stderr[-300:])
+    f, tr, r = run("pipette_offset = none\n", PULSES % ("0", 1))
+    want = 12.0 / (rp + 1e-6) * 1000.0                         # the open tip is 1 Ohm (OPEN_TIP)
+    check("patch, bath: without nulling, the junction potential drives LJP / Rp = %.4f pA at 0 mV (%.4f)" % (want, mt(f, 0, "Ihold_pA")),
+          abs(mt(f, 0, "Ihold_pA") / want - 1) < 1e-9)
+    # 2. cell-attached: the seal (drawn from the seed) in parallel with the patch in series with the cell.  The patch charges
+    # the cell (Cm with Rpatch || Rm, about 3 ms): the conductance of patch + cell after a step is
+    # (1 + (Rm/Rpatch) exp(-t/tau)) / (Rpatch + Rm); the membrane test reads its mean over 7.5 to 10 ms of the step.
+    f, tr, r = run("patch_start = cell_attached\n", PULSES % ("-70", 2))
+    taup = cm * 1e-3 * par(10000.0, rmem)
+    gpatch = (1 + rmem / 10000.0 * taup / 2.5 * (math.exp(-7.5 / taup) - math.exp(-10.0 / taup))) / (10000.0 + rmem)
+    want = rp + 1.0 / (1.0 / tr["seal_MOhm"] + gpatch)
+    check("patch, cell-attached: R = Rp + seal || (patch + cell) = %.3f MOhm (%.3f)" % (want, mt(f, 1, "R_MOhm")),
+          abs(mt(f, 1, "R_MOhm") / want - 1) < 2e-3)
+    check("patch, cell-attached: no cell is fitted (the patch is in series)", "membrane_test_Cm_pF" not in f["trial_0001/ai/P1"].attrs)
+    # 3. whole-cell: R exact; Ra = Rp + seal || Rx at the step; tau = Cm (Rm || (Rx + Rp || seal)) after NEURON's step
+    f, tr, r = run("patch_start = whole_cell\n", PULSES % ("-70", 2))
+    rx, sl = tr["access_MOhm"] - rp, tr["seal_MOhm"]
+    want_r, want_ra = rp + par(sl, rx + rmem), rp + par(sl, rx)
+    tau = cm * 1e-3 * par(rmem, rx + par(rp, sl))              # ms
+    tau_be = 0.005 / math.log(1 + 0.005 / tau)                 # what backward Euler at 5 us makes of it
+    check("patch, whole-cell: R = Rp + seal || (Rx + Rm) = %.3f MOhm (%.3f)" % (want_r, mt(f, 1, "R_MOhm")), abs(mt(f, 1, "R_MOhm") / want_r - 1) < 1e-3)
+    check("patch, whole-cell: Ra = %.3f MOhm (%.3f), within 1 %%" % (want_ra, mt(f, 1, "Ra_MOhm")), abs(mt(f, 1, "Ra_MOhm") / want_ra - 1) < 0.01)
+    check("patch, whole-cell: tau = %.1f us, as the circuit at NEURON's step (%.1f)" % (tau_be * 1000, mt(f, 1, "tau_ms") * 1000),
+          abs(mt(f, 1, "tau_ms") / tau_be - 1) < 0.01)
+    check("patch, whole-cell: Cm %.2f pF of a %.2f pF soma (within 3 %%: the step and the seal's place)" % (mt(f, 1, "Cm_pF"), cm),
+          abs(mt(f, 1, "Cm_pF") / cm - 1) < 0.03)
+    check("patch, whole-cell: the readout prints Ra, Rm and Cm", "Ra 1" in r.stderr and "Cm 1" in r.stderr, r.stderr[-300:])
+    # the junction-potential error after nulling: in current clamp the reading is the tip plus LJP
+    f2, tr2, r2 = run("patch_start = whole_cell\n", "sg 2 stimulus\nrate 20kHz\nchannel P1 unit=pA { 300ms dc(0) }\n", ["-m", "cc"])
+    v = f2["trial_0000/ai/P1"][:]
+    want_v = el * sl / (sl + rx + rmem) + 12.0
+    check("patch, whole-cell, current clamp: the cell rests at %.4f mV through the seal and reads LJP more (%.4f)" % (want_v, v[-1]),
+          abs(v[-1] - want_v) < 1e-3)
+    check("patch: the seed is a cell: the same draw in current and voltage clamp", tr2 == tr)
+    check("patch: the membrane test needs voltage clamp and says so", "no membrane test: it needs voltage clamp" in r2.stderr, r2.stderr[-300:])
+    f3, tr3, r3 = run("patch_start = whole_cell\n", PULSES % ("-70", 1), rig=PATCH_RIG.replace("patch_seed = 51", "patch_seed = 52"))
+    check("patch: another seed, another cell", tr3 is not None and tr3 != tr)
+    # 4. the timeline in one run: the bath (0 mV), the contact, the seal growing, -70 mV from 3.5 s, the break-in at 6 s
+    f, tr, r = run("patch_contact = 0.3s\npatch_suction = 0.5s\npatch_break_in = 6s\n", PULSES % ("0, -70", 35))
+    rs = [mt(f, k, "R_MOhm") for k in range(70)]
+    check("patch, timeline: the bath, then the contact raises R a little (%.2f -> %.2f MOhm)" % (rs[1], rs[4]),
+          abs(rs[1] - rp) < 1e-6 and rp < rs[4] < 1.5 * rp)
+    check("patch, timeline: the seal grows (%.0f MOhm at 3.4 s, never falling while it forms) to gigaohms (%.0f MOhm at 5.9 s)"
+          % (rs[34], rs[59]), rs[34] > 500 and rs[59] > 1500 and all(b >= a - 1e-6 for a, b in zip(rs[5:34], rs[6:35])))
+    check("patch, timeline: after the break-in the cell is there (R %.1f MOhm, Cm %.2f pF)" % (rs[65], mt(f, 65, "Cm_pF")),
+          abs(rs[65] / want_r - 1) < 0.01 and abs(mt(f, 65, "Cm_pF") / cm - 1) < 0.03)
+    # an event inside a pause between trials happens there: the trial of 6.0 s (to 6.02 s) is cell-attached, the next one whole-cell
+    f, tr, r = run("patch_contact = 0.3s\npatch_suction = 0.5s\npatch_break_in = 6.05s\n", PULSES % ("0, -70", 35))
+    a60, a61 = f["trial_0060/ai/P1"].attrs, f["trial_0061/ai/P1"].attrs
+    check("patch, timeline: a break-in at 6.05 s, in the pause, shows in the next trial (R %.0f then %.1f MOhm)"
+          % (a60["membrane_test_R_MOhm"], a61["membrane_test_R_MOhm"]),
+          "membrane_test_Cm_pF" not in a60 and abs(a61["membrane_test_R_MOhm"] / want_r - 1) < 0.01)
+    # what was drawn is never shown: not by -n, not by the run (only network.json has it)
+    w = newdir(tmp, "patch_secret")
+    write(os.path.join(w, "rig.ini"), PATCH_RIG % dict(py=PY, cell="patch_contact = 0.3s\npatch_suction = 0.5s\npatch_break_in = 6s\n"))
+    write(os.path.join(w, "s.sg"), PULSES % ("0", 2))
+    rn = lcg(["-n", "-c", "rig.ini", "s.sg"], w)
+    shown = rn.stdout + rn.stderr + r.stdout + r.stderr
+    secrets = ["%.0f" % tr["seal_MOhm"], "%.2f GOhm" % (tr["seal_MOhm"] / 1000), "%.4f" % tr["access_MOhm"],
+               "%.3f" % tr["access_MOhm"], "%.0f" % tr["seal_tau_ms"], "%.3f" % tr["contact_increase"]]
+    check("patch: -n shows what was set (pipette 5 MOhm, the timeline) and neither it nor the run shows what was drawn (%s)"
+          % ", ".join(secrets), "patch: pipette 5 MOhm" in rn.stdout and not any(x in shown for x in secrets), rn.stdout[-400:])
+
+    # 5. action currents through a cell-attached patch, in-process (a voltage-clamp run has no current-clamp electrode to make
+    # the cell fire): the current the amplifier records is minus the patch current, Cpatch dVm/dt + (Vm - T)/Rpatch, times
+    # the share that goes to the amplifier rather than through the seal
+    sys.path.insert(0, os.path.join(ROOT, "neuron"))
+    import lcg2_neuron as L
+    H = L.load_neuron()
+    prep = ("[cell P9]\nmodel = hh_soma\npipette_resistance = 5\npatch_seed = 51\nseal_failure = 0\npatch_start = cell_attached\n"
+            "patch_capacitance = 0.05\npatch_resistance = 10\n")
+    net = L.Network(H, prep, ".", [dict(name="P9", dim="voltage")], [dict(name="P9", dim="current")],
+                    dict(dt_ms=0.005, celsius=6.3, v_init=-65.0, settle_ms=0.0))
+    ic = H.IClamp(net.cells["P9"]["seg"])
+    ic.delay, ic.dur, ic.amp = 10.0, 40.0, 0.2
+    net.start_trial(100000, 1)
+    el9 = net.out_el[0]
+    ip, vm, tt = [], [], []
+    for k in range(6000):
+        i, = net.block([array.array("d", [0.0])], 1)
+        ip.append(i[0])
+        vm.append(net.cells["P9"]["seg"].v)
+        tt.append(el9.y.x[1])
+    ip, vm, tt = np.array(ip), np.array(vm), np.array(tt)
+    seal = el9.ps["truth"]["seal_MOhm"]
+    pred = -(0.05e-3 * np.gradient(vm, 0.01) + (vm - tt) / 10000.0) * 1e3 * seal / (seal + 5.0)
+    nsp = int(sum(1 for k in range(1, len(vm)) if vm[k - 1] < 0 <= vm[k]))
+    e = np.abs(ip[1000:5000] - pred[1000:5000]).max() / np.abs(pred[1000:5000]).max()
+    check("patch, cell-attached: the cell fires (%d spikes) and each spike is a biphasic current of a few pA through the patch "
+          "(%.1f to %.1f pA), Cpatch dV/dt + (V - T)/Rpatch to %.1f %%" % (nsp, ip[1000:5000].min(), ip[1000:5000].max(), 100 * e),
+          nsp >= 3 and 2 < -ip[1000:5000].min() < 50 and e < 0.05, (nsp, e))
+
+    # mistakes
+    def bad(label, cell, expect, rig=PATCH_RIG):
+        runs[0] += 1
+        w = newdir(tmp, "patch_bad_%d" % runs[0])
+        write(os.path.join(w, "rig.ini"), rig % dict(py=PY, cell=cell))
+        write(os.path.join(w, "s.sg"), PULSES % ("0", 1))
+        r = lcg(["-n", "-c", "rig.ini", "s.sg"], w)
+        check("patch, refused: %s" % label, r.returncode == 1 and expect in r.stderr, r.stderr[-300:])
+    bad("a suction before any contact", "patch_suction = 2s\n", "patch_suction needs a patch_contact before it")
+    bad("a break-in without a seal", "patch_contact = 1s\npatch_break_in = 3s\n", "patch_break_in needs a patch_suction before it")
+    bad("an access smaller than the pipette", "", "must be larger than pipette_resistance",
+        PATCH_RIG.replace("access_resistance = 12", "access_resistance = 4"))
+    bad("the plain electrode's keys", "electrode_resistance = 10\n", "a patching pipette (pipette_resistance) has its own keys")
+    bad("a break-in when already in whole-cell", "patch_start = whole_cell\npatch_break_in = 2s\n", "there is no patch to break")
+    bad("times that go back", "patch_contact = 1s\npatch_suction = 2s\npatch_break_in = 5s, 4s\n", "the times must increase")
+    bad("a patch key without pipette_resistance", "", "give pipette_resistance too", PATCH_RIG.replace("pipette_resistance = 5\n", ""))
+
+
+def test_tutorial_l(tmp):
+    """The lines and numbers tutorial L (docs/16) quotes, from the kit's own files."""
+    import numpy as np
+    d = newdir(tmp, "tut_l")
+    for f in ("rig_patch.ini", "seal_test.sg", "cell_attached.sg", "small_step.sg"):
+        p = os.path.join(KIT, f)
+        write(os.path.join(d, f), fix_py(open(p).read()) if f.endswith(".ini") else open(p).read())
+    runs = [0]
+
+    def run(*args):
+        runs[0] += 1
+        w = newdir(tmp, "tut_l_%d" % runs[0])
+        r = lcg(list(args[:-1]) + ["-c", os.path.join(d, "rig_patch.ini"), os.path.join(d, args[-1])], w)
+        return r, (h5_of(w) if r.returncode == 0 else None)
+
+    r, h5 = run("-m", "vc", "seal_test.sg")
+    for line in ("trial 0000  P1  R 5.00 MOhm, I hold 0.0 pA", "trial 0024  P1  R 6.13 MOhm, I hold 1.2 pA",
+                 "trial 0040  P1  R 65.09 MOhm, I hold 5.9 pA", "trial 0060  P1  R 886.72 MOhm, I hold 6.4 pA",
+                 "trial 0099  P1  R 1.75 GOhm, I hold 6.4 pA", "trial 0100  P1  R 1.78 GOhm, I hold -33.4 pA",
+                 "trial 0159  P1  R 1.82 GOhm, I hold -32.1 pA",
+                 "trial 0161  P1  R 242.84 MOhm: Ra 10.98 MOhm, Rm 231.9 MOhm, Cm 12.87 pF (tau 135 us), I hold -136.8 pA"):
+        check("tutorial L prints: %s" % line, line in r.stderr, r.stderr[-500:])
+    r, h5 = run("-m", "vc", "-P", "other_cell", "seal_test.sg")
+    check("tutorial L: a bad seal never passes 108 MOhm; in the cell -632 pA at -70 mV and Cm 14.1 pF",
+          "trial 0099  P1  R 107.92 MOhm" in r.stderr and "I hold -631.8 pA" in r.stderr and "Cm 14.1" in r.stderr, r.stderr[-500:])
+    r, h5 = run("-m", "vc", "-P", "no_offset", "seal_test.sg")
+    check("tutorial L: without the offset nulled the bath shows 2400 pA at 0 mV", "trial 0000  P1  R 5.00 MOhm, I hold 2400.0 pA" in r.stderr,
+          r.stderr[-300:])
+    r, h5 = run("-m", "cc", "-P", "whole_cell", "small_step.sg")
+    v = trace(h5, 0, "P1") if h5 else np.zeros(8000)
+    check("tutorial L: in current clamp the same cell reads -51.1 mV (really -63.1 mV)", abs(v[1000:2000].mean() + 51.1) < 0.05, v[1000:2000].mean())
+    r, h5 = run("-m", "vc", "-P", "firing", "cell_attached.sg")
+    i = trace(h5, 0, "P1") if h5 else np.zeros(10)
+    b = np.median(i)
+    n = int(np.sum((i[1:] < b - 5) & (i[:-1] >= b - 5)))
+    late = i[len(i) // 2:].min()
+    check("tutorial L: cell-attached, 31 action currents in 0.5 s, down to -11.5 pA (the first, from rest, -16 pA) from a baseline "
+          "of about 6 pA (%d, %.1f, %.1f, %.1f)" % (n, late, i.min(), b),
+          n == 31 and abs(late + 11.5) < 0.2 and abs(i.min() + 16.1) < 0.2 and abs(b - 6.3) < 0.3)
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="lcg2_neuron_test_")
     try:
         for t in (test_reference, test_overrange, test_vc, test_pair, test_state_between_trials, test_models,
-                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_kill_adapter, test_ctrl_c):
+                  test_mistakes, test_slow_check_tolerated, test_hoc_hooks, test_kit, test_tutorials, test_electrodes, test_physics, test_patch, test_tutorial_l, test_kill_adapter, test_ctrl_c):
             t(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

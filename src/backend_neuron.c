@@ -276,6 +276,12 @@ static int start_adapter(Nrn *s, const Config *cfg, int check, Err *err)
         s->pid = 0; s->to = s->from = -1;
         return -1;
     }
+    if (!check && !s->o.quiet) {                      /* what the adapter wants said when a run starts */
+        const Json *notes = json_get(rep, "notes");
+        size_t k;
+        for (k = 0; notes && k < notes->n; k++)
+            if (json_str(json_at(notes, k))) fprintf(stderr, "lcg2: %s\n", json_str(json_at(notes, k)));
+    }
     s->desc = s->lastline;                            /* keep the description for the archive */
     s->lastline = NULL;
     s->up = 1;

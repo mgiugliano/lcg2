@@ -72,7 +72,7 @@ HDRS = $(wildcard src/*.h)
 
 # The modules that need nothing but the C library, and those that need HDF5 (record.c
 # only: HDF5 is kept out of every test tool that does not write a data file).
-CORE    = err units config cli json stim platform backend_sim backend_neuron engine sha256 archive session
+CORE    = err units config cli json stim platform backend_sim backend_neuron engine sha256 archive session mtest
 APP     = record run main
 OBJ     = $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o $(APP:%=$(BUILD)/%.o)
 CORE_OBJ= $(CORE:%=$(BUILD)/%.o) $(BUILD)/ini.o

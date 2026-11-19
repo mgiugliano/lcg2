@@ -28,7 +28,7 @@ fi
 INI="-DINI_HANDLER_LINENO=1 -DINI_CALL_HANDLER_ON_NEW_SECTION=1 -DINI_ALLOW_MULTILINE=0 -DINI_STOP_ON_FIRST_ERROR=1 -DINI_MAX_LINE=1000"
 F="-std=c99 -Wall -Wextra -g -O1 -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=undefined -Wno-deprecated-declarations"
 SGSRC="$SG/util.c $SG/help.c $SG/render.c $SG/rng.c $SG/parse.c $SG/prims.c $SG/eval.c $SG/protocol.c $SG/sgb.c $SG/sg_api.c"
-CORE="src/err.c src/units.c src/config.c src/cli.c src/json.c src/stim.c src/platform.c src/backend_sim.c src/backend_neuron.c src/engine.c src/sha256.c src/archive.c src/session.c vendor/inih/ini.c"
+CORE="src/err.c src/units.c src/config.c src/cli.c src/json.c src/stim.c src/platform.c src/backend_sim.c src/backend_neuron.c src/engine.c src/sha256.c src/archive.c src/session.c src/mtest.c vendor/inih/ini.c"
 APP="src/record.c src/run.c"
 PIN_COMMIT=$(sed -n 's/^commit *= *//p' STIMGEN_PIN); PIN_SHA=$(sed -n 's/^sources_sha256 *= *//p' STIMGEN_PIN)
 PIN="-DLCG2_STIMGEN_COMMIT=\"$PIN_COMMIT\" -DLCG2_STIMGEN_SHA256=\"$PIN_SHA\" -DLCG2_NEURON_ADAPTER=\"$(pwd)/neuron/lcg2_neuron.py\""

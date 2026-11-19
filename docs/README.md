@@ -55,7 +55,7 @@ The whole manual in one PDF (the README with the installation guide, both tutori
 | [11 Notes for AI assistants](11-for-ai-agents.md) | state, rules, traps, decisions, next steps |
 | [12 Error messages](12-error-messages.md) | each message LCG2 can print, what it means, how to fix it |
 | [13 Data format](13-data-format.md) | the HDF5 file, the run folder, how to read them, what a crash leaves |
-| [16 Tutorials with virtual cells](16-neuron-tutorials.md) | eleven tutorials with figures from real runs: first cell, f-I, voltage clamp, synapses, your own Python cell, morphology, your own channel, a real electrode with bridge balance, compensation and AEC |
+| [16 Tutorials with virtual cells](16-neuron-tutorials.md) | twelve tutorials with figures from real runs: first cell, f-I, voltage clamp, synapses, your own Python cell, morphology, your own channel, a real electrode with bridge balance, compensation and AEC, seal and bandwidth, patching a cell from the bath to whole-cell |
 | [15 Testing](15-testing.md) | what `make test` proves, what each suite needs, what is not tested |
 | [14 Virtual cells](14-neuron-models.md) | `device = neuron`: describe cells and synapses in the configuration, bring your own models, train in patching |
 

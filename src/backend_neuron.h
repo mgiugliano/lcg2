@@ -53,6 +53,7 @@ typedef struct {
     int         check_only;      /* build the network, report, stop (for -n)   */
     int         init_timeout_s;  /* building can include compiling .mod files  */
     int         block_timeout_s; /* longest wait for one block of 0.1 s        */
+    int         quiet;           /* -q: do not print the adapter's notes        */
 } NeuronOpts;
 
 /* The adapter to run for cfg: [rig] sim_script (a relative path starts in the folder of the configuration

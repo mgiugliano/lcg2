@@ -32,6 +32,7 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
 | `rig_custom.ini`, `two_compartment.py` | a cell written from scratch in Python |
 | `rig_electrode.ini` | the pipette and the amplifier: resistance, capacitance, bridge balance, neutralisation, compensation, noise |
 | `rig_aec.ini`, `aec_noise.sg`, `aec.py` | active electrode compensation, with a second electrode that records the truth |
+| `rig_patch.ini`, `seal_test.sg`, `cell_attached.sg` | patching a cell: the pipette in the bath, the seal, cell-attached, the break-in, with a seal test and a membrane test |
 | `pyramidal.py`, `simple_cell.hoc`, `tiny.swc`, `cell_tuning.py`, `start_depolarised.py` | cell models, as examples to copy |
 
 ## Exercises
@@ -56,7 +57,9 @@ $ $LCG2 -c $KIT/rig.ini -n $KIT/current_steps.sg        # builds the cell, plays
    (`-m vc`) with `vc_raw` and `vc_comp`. Find the bridge balance that removes the jump at the step's edges. Tutorial J.
 9. **Active electrode compensation.** `rig_aec.ini` with `aec_noise.sg` and `aec.py`: how much of the electrode does it remove? Change
    `electrode_resistance`; use a longer noise.
-10. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
+10. **Patch a cell.** `$LCG2 -m vc -c $KIT/rig_patch.ini $KIT/seal_test.sg`: follow the resistance from the bath to the seal and
+   into the cell; read Ra, Rm and Cm. Try `-P other_cell` (a bad seal) and `-P firing` with `cell_attached.sg`. Tutorial L.
+11. **Your own analysis.** `read_run.py` and `characterise.py` are short: write the analysis you need (spike
    threshold, adaptation, the membrane time constant from a small step).
 
 Things to keep in mind, as on a real rig: the **range** of an input clips what is too large (a warning says so);

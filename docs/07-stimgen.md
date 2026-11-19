@@ -138,6 +138,14 @@ channel list, and that the file has exactly the size the header promises.
 - A digital channel needs a digital output, an analog channel an analog one.
 - Units are compared **by dimension**. A stimulus in `nA` on a `pA` output is rescaled; `pA` against `mV` is an error that says which mode to use; a unit that is neither current nor voltage (a conductance such as `nS`) is an error.
 
+### A channel's rest value: write it without a unit
+
+A channel's `rest=` is the value it holds before and after the stimulus (and, in LCG2, between trials). Write it as a plain
+number, in the unit of the channel: `channel P1 unit=mV rest=-70 { ... }`. StimGen at the pinned commit reads `rest=-70mV`, with
+a unit, in volts (−0.07) while the samples stay in mV, so the output would rest at −0.07 mV. This was found on 2026-11-19 and is
+to be reported upstream; until it is fixed, the kit's stimuli write `rest` without a unit, and so must protocols that substitute
+a variable into it (`sweep hold = [0, -70]`, `rest=$hold`).
+
 ### The clipping check (`stim_check`)
 
 For every named analog channel: every sample must be a finite number; the

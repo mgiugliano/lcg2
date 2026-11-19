@@ -69,6 +69,7 @@ A digital line refuses `gain_*`, `unit_*`, `limit`, `rest`, `cal_*`.
 | `gain_vc`, `unit_vc` | positive number; **current** unit | gain in vc, given together |
 | `cal_offset`, `cal_scale` | as for outputs | bench calibration |
 | `skip` | `yes`, `no` (default) | do not record this input |
+| `membrane_test` | `yes`, `no` (default) | voltage clamp: after every trial, the seal test and membrane test of this pipette (R, I hold, and in whole-cell Ra, Rm, Cm), printed and kept in the data file ([14](14-neuron-models.md#patching-from-the-bath-to-whole-cell)) |
 
 Units by mode, once more: an **output** is current in cc and voltage in vc; an
 **input** is voltage in cc and current in vc. Units known: current `fA pA nA uA mA A`,

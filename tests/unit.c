@@ -37,6 +37,7 @@
 #include "cli.h"
 #include "config.h"
 #include "engine.h"
+#include "mtest.h"
 #include "sha256.h"
 #include "stim.h"
 #include "units.h"
@@ -259,6 +260,59 @@ static void test_sha256(void)
     CHECK(lcg_sha256_file("/nonexistent/probe", hex, &size, &e) == -1 && strstr(e.msg, "cannot read") != NULL);
 }
 
+/* The membrane test against synthetic recordings with exact parameters: a cell (Ra, Rmem, Cm) clamped through
+ * Ra, sampled at the end of each interval (sample s is the first after the step: t = (i - s + 1) / rate). */
+static void synth(double *cmd, double *cur, int n, int s, int e, double rate, double dv, double ra, double rmem,
+                  double cm, double hold)
+{
+    int i;
+    double tau = cm * 1e-3 * ra * rmem / (ra + rmem);         /* ms */
+    double iss = dv / (ra + rmem) * 1000.0, a0 = dv / ra * 1000.0 - iss;
+    for (i = 0; i < n; i++) {
+        cmd[i] = i >= s && i < e ? -70.0 + dv : -70.0;
+        cur[i] = hold;
+        if (i >= s && i < e) cur[i] += iss + a0 * exp(-(double)(i - s + 1) / rate * 1000.0 / tau);
+    }
+}
+
+static void test_mtest(void)
+{
+    static double cmd[4000], cur[4000];
+    MTest m;
+    char buf[40];
+    int i;
+    /* whole cell at 100 kHz: Ra 10, Rm 250 MOhm, Cm 12.5 pF (tau 120 us, 12 samples) */
+    synth(cmd, cur, 2000, 500, 1500, 100000.0, 5.0, 10.0, 250.0, 12.5, -48.0);
+    CHECK(mtest_analyse(cmd, cur, 2000, 100000.0, &m) == 0);
+    CHECK(m.cell == 1);
+    CHECK(fabs(m.r_mohm - 260.0) < 1e-6);
+    CHECK(fabs(m.ra_mohm - 10.0) < 1e-6);
+    CHECK(fabs(m.rm_mohm - 250.0) < 1e-6);
+    CHECK(fabs(m.cm_pf - 12.5) < 1e-6);
+    CHECK(fabs(m.ihold_pa + 48.0) < 1e-9);
+    CHECK(fabs(m.dv_mv - 5.0) < 1e-12);
+    /* a negative step gives the same cell */
+    synth(cmd, cur, 2000, 500, 1500, 100000.0, -5.0, 10.0, 250.0, 12.5, 0.0);
+    CHECK(mtest_analyse(cmd, cur, 2000, 100000.0, &m) == 0 && m.cell == 1 && fabs(m.cm_pf - 12.5) < 1e-6);
+    /* too slow: 20 kHz gives 2.4 samples per time constant: refused, and why */
+    synth(cmd, cur, 400, 100, 300, 20000.0, 5.0, 10.0, 250.0, 12.5, 0.0);
+    CHECK(mtest_analyse(cmd, cur, 400, 20000.0, &m) == 0 && m.cell == 0 && strstr(m.why, "sample faster") != NULL);
+    CHECK(fabs(m.r_mohm - 260.0) < 1e-6);                       /* R is still right */
+    /* the pipette in the bath: a resistor, no transient */
+    for (i = 0; i < 2000; i++) { cmd[i] = i >= 500 && i < 1500 ? 5.0 : 0.0; cur[i] = cmd[i] / 5.0 * 1000.0; }
+    CHECK(mtest_analyse(cmd, cur, 2000, 100000.0, &m) == 0 && m.cell == 0 && fabs(m.r_mohm - 5.0) < 1e-9);
+    CHECK(strstr(m.why, "no capacitive transient") != NULL);
+    /* a perfect seal: the current does not change at all */
+    for (i = 0; i < 2000; i++) cur[i] = 3.0;
+    CHECK(mtest_analyse(cmd, cur, 2000, 100000.0, &m) == 0 && isinf(m.r_mohm));
+    /* no step */
+    for (i = 0; i < 2000; i++) cmd[i] = -70.0;
+    CHECK(mtest_analyse(cmd, cur, 2000, 100000.0, &m) == -1 && strstr(m.why, "no step") != NULL);
+    mtest_format_r(5.023, buf, sizeof buf);    CHECK(strcmp(buf, "5.02 MOhm") == 0);
+    mtest_format_r(1840.0, buf, sizeof buf);   CHECK(strcmp(buf, "1.84 GOhm") == 0);
+    mtest_format_r(INFINITY, buf, sizeof buf); CHECK(strcmp(buf, "> 1000 GOhm") == 0);
+}
+
 int main(void)
 {
     Err e;
@@ -322,6 +376,7 @@ int main(void)
     CHECK(stim_rate_fraction(1.0 / 3.0, &p, &q) == -1);           /* not decimal */
 
     test_sha256();
+    test_mtest();
     test_error_trap();
     test_time_arithmetic();
     test_timing_parser();

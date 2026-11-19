@@ -68,7 +68,11 @@ prints `OK` for every item. A changed byte anywhere is reported.
 - **Datasets** `ai/<name>` and `ao/<name>` are 1-D, chunked (8192 samples), extendable, `float64`,
   uncompressed, named like the `[in NAME]` and `[out NAME]` sections. Idle outputs have no dataset.
 - **Attributes of an `ai` dataset:** `unit`, `line`, `gain`, `cal_scale`, `cal_offset`, `range_v`,
-  `terminal`, `mode`, `overrange_samples` (the samples the board or simulator clamped).
+  `terminal`, `mode`, `overrange_samples` (the samples the board or simulator clamped). With `membrane_test = yes` in its `[in]`
+  (voltage clamp): `membrane_test_dv_mV`, `membrane_test_R_MOhm` (infinite if the current did not change) and
+  `membrane_test_Ihold_pA`, and when a whole-cell transient was fitted `membrane_test_Ra_MOhm`, `membrane_test_Rm_MOhm`,
+  `membrane_test_Cm_pF`, `membrane_test_tau_ms` (float64; see [14](14-neuron-models.md#patching-from-the-bath-to-whole-cell)).
+  The same results are lines of `log.txt` (`membrane test  trial ...`).
 - **Times** are integers in nanoseconds on the run's clock (`start_ns`, `end_ns`, `scheduled_ns`);
   `delay_ns` is `start_ns - scheduled_ns` and includes `latency_ns`. `virtual_time = 1` marks simulated time.
 - **`incomplete`** is set to 1 when a trial *begins* and to 0 only when it ends complete. After an abort or a

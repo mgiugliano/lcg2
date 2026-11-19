@@ -392,7 +392,9 @@ ELECTRODE_KEYS = ("electrode_resistance", "electrode_capacitance", "recording_no
                   "cap_neutralization", "rs_compensation", "cp_compensation", "seal_resistance",
                   "liquid_junction_potential", "amplifier_bandwidth", "rs_lag")
 CELL_KEYS = ("model", "template", "morphology", "biophysics", "init", "mechanisms", "electrode", "d_lambda",
-             "series_resistance", "same_as") + ELECTRODE_KEYS
+             "series_resistance", "same_as") + ELECTRODE_KEYS + ("pipette_resistance", "pipette_capacitance",
+             "access_resistance", "seal_target", "patch_resistance", "patch_capacitance", "patch_seed", "seal_failure",
+             "break_in_success", "pipette_offset", "patch_start", "patch_contact", "patch_suction", "patch_break_in")
 
 
 def build_cell(h, name, spec, base, loaded_mech):
@@ -786,6 +788,253 @@ class VCElectrode(object):
         return self.iref[0] * 1e3 + (self.cp - self.cpc) * self.dv
 
 
+# --------------------------------------------------------------------------
+# patching: the pipette in the bath, the seal, the cell-attached patch, the break-in
+# --------------------------------------------------------------------------
+#
+# A [cell] with pipette_resistance has a patching pipette instead of the electrode above.  Its circuit, solved by
+# NEURON together with the cell (a LinearMechanism: implicit, so stiff paths such as an open tip are no problem):
+#
+#     amplifier --- Rp (pipette) --- T (tip) ---+--- Rbath(t) --- bath (0 mV)          the open tip, then the seal
+#     (VC: holds W; CC: node A,                 +--- patch(t) --- cell (Vm)           Rpatch || Cpatch, then Ra - Rp
+#      with Cp - Cn to ground)
+#
+# A junction potential e = LJP sits between the pipette solution and the bath, in series in the pipette, until the
+# break-in.  The amplifier's pipette offset O, nulled in the bath (pipette_offset = null, the default), is O = LJP: it
+# makes the bath current zero at 0 mV and stays when the junction disappears, which is the junction-potential error of
+# a whole-cell recording (recorded = Vm + LJP, the clamped cell at command - LJP, as for the plain electrode).
+# VC: W = command - O, the current recorded is (W + e - T)/Rp plus the pipette transient (Cp - Cpc) dW/dt.
+# CC: (Cp - Cn) dA/dt = Icmd - (A + e - T)/Rp, the potential recorded is A + O - Rb*Icmd.
+#
+# The stages follow a timeline (times from the start of the first trial, after sim_settle):
+#     bath                                Rbath ~ 0, no patch
+#     patch_contact                       Rbath rises to 10-30 % of Rp in 0.3 s; the membrane fills the tip (patch)
+#     patch_suction                       Rbath grows to the seal (log scale, time constant tau_seal)
+#     patch_break_in (one or more)        the patch becomes the access resistance Ra - Rp; the junction is gone
+# What a real pipette makes of it is drawn once, from patch_seed and the cell's name only (never from the time step,
+# the rate or the mode), so a seed is a cell: the same in voltage and current clamp.
+
+PATCH_KEYS = ("pipette_resistance", "pipette_capacitance", "access_resistance", "seal_target", "patch_resistance",
+              "patch_capacitance", "patch_seed", "seal_failure", "break_in_success", "pipette_offset", "patch_start",
+              "patch_contact", "patch_suction", "patch_break_in")
+PATCH_DIALS = ("recording_noise", "noise_seed", "amplifier_bandwidth", "liquid_junction_potential", "cp_compensation",
+               "bridge_balance", "cap_neutralization")
+PATCH_STAGES = ("bath", "cell_attached", "whole_cell")
+OPEN_TIP = 1e-6         # MOhm: the open tip to the bath (a conductance of 1e6 uS, solved implicitly)
+
+
+def times_of(text, what):
+    """'15s, 20s' -> [15000.0, 20000.0] (ms)."""
+    out = [number(x, what, MS) for x in str(text).split(",") if x.strip()]
+    if not out:
+        raise Problem("%s: give a time, such as 2s" % what)
+    if any(b <= a for a, b in zip(out, out[1:])):
+        raise Problem("%s: the times must increase (%s)" % (what, text))
+    return out
+
+
+def patch_spec(name, spec):
+    """The patching pipette of [cell NAME]: what you set, and what the pipette and the cell turn out to be (drawn)."""
+    w = "[cell %s] " % name
+    bad = [k for k in ("electrode_resistance", "electrode_capacitance", "seal_resistance", "series_resistance",
+                       "rs_compensation", "rs_lag") if k in spec]
+    if bad:
+        raise Problem("%s%s: a patching pipette (pipette_resistance) has its own keys: pipette_capacitance for its capacitance, "
+                      "seal_target for the seal, access_resistance for after the break-in (rs_compensation is not available for "
+                      "a patching pipette yet)" % (w, bad[0]))
+
+    def g(key, unit, units, default, low=0.0):
+        x = number(spec.get(key, default), w + key + " (" + unit + ")", units)
+        if not x >= low:
+            raise Problem("%s%s must be at least %g (it is %g)" % (w, key, low, x))
+        return x
+    R = {"MOhm": 1.0, "kOhm": 0.001, "GOhm": 1000.0}
+    p = dict(rp=g("pipette_resistance", "MOhm", R, 0, 0.1), cp=g("pipette_capacitance", "pF", {"pF": 1.0}, 0),
+             seal=g("seal_target", "GOhm", {"GOhm": 1.0}, 2.0, 0.01) * 1000.0,
+             rpatch=g("patch_resistance", "GOhm", {"GOhm": 1.0}, 10.0, 0.01) * 1000.0,
+             cpatch=g("patch_capacitance", "pF", {"pF": 1.0}, 0.05),
+             seed=int(g("patch_seed", "integer", None, 1)), p_fail=g("seal_failure", "probability", None, 0.15),
+             p_break=g("break_in_success", "probability", None, 0.7))
+    p["access"] = g("access_resistance", "MOhm", R, 2.5 * p["rp"])
+    if p["access"] <= p["rp"]:
+        raise Problem("%saccess_resistance (%g MOhm) must be larger than pipette_resistance (%g MOhm): after the break-in the "
+                      "access is the pipette plus what is left of the patch" % (w, p["access"], p["rp"]))
+    for k in ("p_fail", "p_break"):
+        if p[k] > 1:
+            raise Problem("%s%s is a probability, between 0 and 1 (it is %g)" % (w, {"p_fail": "seal_failure", "p_break": "break_in_success"}[k], p[k]))
+    off = str(spec.get("pipette_offset", "null")).strip()
+    if off not in ("null", "none"):
+        raise Problem("%spipette_offset is null (nulled in the bath, as you do on a rig) or none, not '%s'" % (w, off))
+    p["null_offset"] = off == "null"
+    start = str(spec.get("patch_start", "bath")).strip()
+    if start not in PATCH_STAGES:
+        raise Problem("%spatch_start is %s, not '%s'" % (w, ", ".join(PATCH_STAGES), start))
+    p["start"] = start
+    given = lambda k: str(spec.get(k, "")).strip() != ""          # noqa: E731  (a profile can empty a key)
+    p["contact"] = times_of(spec["patch_contact"], w + "patch_contact")[0] if given("patch_contact") else None
+    p["suction"] = times_of(spec["patch_suction"], w + "patch_suction")[0] if given("patch_suction") else None
+    p["break_in"] = times_of(spec["patch_break_in"], w + "patch_break_in") if given("patch_break_in") else []
+    if start != "bath" and (p["contact"] is not None or p["suction"] is not None):
+        raise Problem("%spatch_contact and patch_suction belong to a pipette that starts in the bath (patch_start = %s)" % (w, start))
+    if start == "whole_cell" and p["break_in"]:
+        raise Problem("%spatch_break_in: the pipette starts in whole-cell (patch_start = whole_cell), there is no patch to break" % w)
+    if p["suction"] is not None and (p["contact"] is None or p["suction"] < p["contact"]):
+        raise Problem("%spatch_suction needs a patch_contact before it (the tip must touch the cell first)" % w)
+    if p["break_in"] and start == "bath" and (p["suction"] is None or p["break_in"][0] < p["suction"]):
+        raise Problem("%spatch_break_in needs a patch_suction before it (a seal first, then the break-in)" % w)
+
+    # what this pipette and this cell turn out to be: drawn in a fixed order, whatever is used
+    rng = random.Random("%d:%s" % (p["seed"], name))
+    u = [rng.random() for _ in range(8)]
+    g_seal, g_ra = rng.gauss(0.0, 1.0), rng.gauss(0.0, 1.0)
+    attempts = [rng.random() for _ in range(32)]
+    formed = u[1] >= p["p_fail"]
+    t = dict(contact_increase=0.1 + 0.2 * u[0], seal_formed=formed,
+             seal_MOhm=p["seal"] * math.exp(0.35 * g_seal) if formed else math.exp(math.log(50) + u[2] * math.log(10)),
+             seal_tau_ms=1000.0 + 3000.0 * u[3], access_MOhm=max(1.2 * p["rp"], p["access"] * math.exp(0.25 * g_ra)),
+             access_drift_per_10min=0.5 * u[4])
+    t["break_in_ms"] = None
+    for k, tb in enumerate(p["break_in"]):
+        if attempts[k] < p["p_break"]:
+            t["break_in_ms"] = tb
+            break
+    p["truth"] = t
+    return p
+
+
+class PatchElectrode(object):
+    """A patching pipette: see the comment above PATCH_KEYS."""
+
+    def __init__(self, h, rec, es, ps, kind, t0_ms):
+        self.h, self.kind, self.es, self.ps, self.t0 = h, kind, es, ps, t0_ms
+        self.model = True
+        seg = rec["seg"]
+        self.vref = seg._ref_v
+        self.k = 100.0 / seg.area()                               # nA -> mA/cm2 on the membrane's row
+        self.gp = 1.0 / ps["rp"]
+        self.ljp = es["ljp"]
+        self.off = self.ljp if ps["null_offset"] else 0.0
+        self.cpc, self.rb, self.cn = es["cpc"], es["rb"], es["cn"]
+        if kind == "i" and self.cn > 0 and self.cn >= ps["cp"]:
+            raise Problem("[cell %s] cap_neutralization (%g pF) must stay below pipette_capacitance (%g pF)" % (rec["name"], self.cn, ps["cp"]))
+        n = 2 if kind == "v" else 3                              # y = [v, T] or [v, T, A]
+        self.c, self.g, self.y, self.b = h.Matrix(n, n, 2), h.Matrix(n, n, 2), h.Vector(n), h.Vector(n)
+        for i in range(n):                                       # the mechanism keeps the entries that exist when it is
+            for j in range(n):                                   # made: make them all (the values are set by update())
+                self.c.setval(i, j, 1.0)
+                self.g.setval(i, j, 1.0)
+        sl = h.SectionList()
+        sl.append(sec=rec["sec"])
+        self.lm = h.LinearMechanism(self.c, self.g, self.y, self.b, sl, h.Vector([seg.x]))
+        for i in range(n):
+            for j in range(n):
+                self.c.setval(i, j, 0.0)
+                self.g.setval(i, j, 0.0)
+        if kind == "i":                                          # the amplifier's side of the pipette: A, with Cp - Cn
+            self.c.setval(2, 2, (ps["cp"] - self.cn) * 1e-3)
+            self.g.setval(2, 2, self.gp)
+            self.g.setval(2, 1, -self.gp)
+            self.g.setval(1, 2, -self.gp)
+        self.cmd, self.vprev, self.dv = 0.0, None, 0.0
+        self.clamp = None
+        self.stage = ""
+        self.e, self.next_ms = 0.0, -1e300
+        # the circuit changes over milliseconds to seconds: it is updated every REFRESH_MS, and exactly at every event
+        self.events = sorted(x for x in [ps["contact"], ps["suction"], ps["truth"]["break_in_ms"]] if x is not None)
+
+    # -- the timeline ---------------------------------------------------
+    def state(self, t_ms):
+        """(R to the bath, conductance to the cell, capacitance to the cell in pF, junction emf, stage) at run time t."""
+        ps, tr = self.ps, self.ps["truth"]
+        rp = ps["rp"]
+        rc = tr["contact_increase"] * rp
+        tb = tr["break_in_ms"]
+        if ps["start"] == "whole_cell" or (tb is not None and t_ms >= tb):
+            since = t_ms - (tb if tb is not None else 0.0)
+            ra = (tr["access_MOhm"] - rp) * (1.0 + tr["access_drift_per_10min"] * max(0.0, since) / 600000.0)
+            return tr["seal_MOhm"], 1.0 / ra, 0.0, 0.0, "whole_cell"
+        patch_g, patch_c = 1.0 / ps["rpatch"], ps["cpatch"]
+        if ps["start"] == "cell_attached":
+            return tr["seal_MOhm"], patch_g, patch_c, self.ljp, "cell_attached"
+        if ps["contact"] is None or t_ms < ps["contact"]:
+            return OPEN_TIP, 0.0, 0.0, self.ljp, "bath"
+        if ps["suction"] is None or t_ms < ps["suction"]:
+            return max(OPEN_TIP, rc * min(1.0, (t_ms - ps["contact"]) / 300.0)), patch_g, patch_c, self.ljp, "contact"
+        x = math.exp(-(t_ms - ps["suction"]) / tr["seal_tau_ms"])
+        rbath = math.exp(math.log(tr["seal_MOhm"]) + (math.log(rc) - math.log(tr["seal_MOhm"])) * x)
+        return rbath, patch_g, patch_c, self.ljp, "sealing" if x > 0.01 else "cell_attached"
+
+    REFRESH_MS = 0.1
+
+    def update(self):
+        t = self.h.t - self.t0
+        self.next_ms = min([t + self.REFRESH_MS] + [x for x in self.events if x > t + 1e-9])
+        rbath, gx, cx, e, self.stage = self.state(t)
+        gb, gp, k, c, g = 1.0 / rbath, self.gp, self.k, self.c, self.g
+        g.setval(0, 0, gx * k)
+        g.setval(0, 1, -gx * k)
+        g.setval(1, 0, -gx)
+        g.setval(1, 1, gp + gb + gx)
+        cn = cx * 1e-3                                            # pF -> nF: nF * mV/ms is nA
+        c.setval(0, 0, cn * k)
+        c.setval(0, 1, -cn * k)
+        c.setval(1, 0, -cn)
+        c.setval(1, 1, cn)
+        self.e = e
+        self.source()
+
+    def source(self):
+        if self.kind == "v":
+            self.b.x[1] = self.gp * (self.cmd - self.off + self.e)    # the source W + e through Rp
+        else:
+            self.b.x[1] = self.gp * self.e
+            self.b.x[2] = self.cmd - self.gp * self.e                 # Icmd (nA) into A
+
+    def start(self):
+        """Put the pipette at rest on the cell as initialised: solve the circuit with the cell's potential held."""
+        self.update()
+        v = self.vref[0]
+        rbath, gx, _cx, e, _s = self.state(self.h.t - self.t0)
+        gb, gp = 1.0 / rbath, self.gp
+        if self.kind == "v":
+            w = self.cmd - self.off
+            T = (gp * (w + e) + gx * v) / (gp + gb + gx)
+            self.y.x[0], self.y.x[1] = v, T
+        else:                                                     # no current: A + e = T, and T between bath and cell
+            T = gx * v / (gb + gx) if gb + gx > 0 else 0.0
+            self.y.x[0], self.y.x[1], self.y.x[2] = v, T, T - e
+
+    def coarse(self, on):
+        pass
+
+    def command(self, x, T_ms=None):
+        if self.kind == "v":
+            self.dv = 0.0 if (self.vprev is None or not T_ms) else (x - self.vprev) / T_ms
+            self.vprev = x
+            self.cmd = x
+        else:
+            self.cmd = x * 1e-3                                   # pA -> nA
+
+    def pre(self, dt):
+        if self.h.t - self.t0 + 1e-9 >= self.next_ms:
+            self.update()
+        else:
+            self.source()
+
+    def post(self, dt):
+        pass
+
+    def read_v(self):
+        if self.kind == "v":
+            return self.cmd                                       # the amplifier shows the potential it holds
+        return self.y.x[2] + self.off - self.rb * self.cmd
+
+    def read_i(self):
+        if self.kind == "v":
+            return (self.cmd - self.off + self.e - self.y.x[1]) * self.gp * 1e3 + (self.ps["cp"] - self.cpc) * self.dv
+        return self.cmd * 1e3
+
+
 class Network(object):
     def __init__(self, h, prep, base, outs, ins, opts):
         self.h = h
@@ -806,7 +1055,7 @@ class Network(object):
                 if target is None:
                     raise Problem("[cell %s]: same_as = '%s' must name a [cell] written EARLIER in the file (cells: %s)"
                                   % (name, spec["same_as"], ", ".join(self.cells) or "none yet"))
-                others = sorted(k for k in spec if k not in ("same_as", "electrode") + ELECTRODE_KEYS)
+                others = sorted(k for k in spec if k not in ("same_as", "electrode") + ELECTRODE_KEYS + PATCH_KEYS)
                 if others:
                     raise Problem("[cell %s]: with same_as the cell is that of %s; '%s' belongs to the cell, not to the "
                                   "electrode (only electrode and the electrode_/amplifier keys are allowed here)"
@@ -830,6 +1079,12 @@ class Network(object):
         self.out_e, self.in_e, self.out_el, self.noise, self.in_read = [], [], [], {}, []
         for name, rec in self.cells.items():
             rec["es"] = electrode_spec(name, rec["spec"])
+            rec["ps"] = patch_spec(name, rec["spec"]) if "pipette_resistance" in rec["spec"] else None
+            if rec["ps"]:
+                rec["es"]["model"] = True
+            elif any(k in rec["spec"] for k in PATCH_KEYS):
+                k = next(k for k in PATCH_KEYS if k in rec["spec"])
+                raise Problem("[cell %s] %s belongs to a patching pipette: give pipette_resistance too" % (name, k))
             if rec["es"]["noise"] > 0:
                 self.noise[name] = Noise(rec["es"]["noise"], rec["es"]["seed"] + 7919 * len(self.noise))
         # the step: sim_dt, or less where a pipette needs it
@@ -855,7 +1110,9 @@ class Network(object):
                     raise Problem("[cell %s] seal_resistance %g GOhm is too small for sim_dt %g ms with the %.1f pF of "
                                   "membrane under the electrode: use at least %.4f GOhm or a smaller sim_dt"
                                   % (o["name"], es["seal"] / 1000.0, opts["dt_ms"], cseg, opts["dt_ms"] / cseg))
-            if o["dim"] == "current":
+            if rec["ps"]:
+                el = PatchElectrode(h, rec, es, rec["ps"], "i" if o["dim"] == "current" else "v", opts["settle_ms"])
+            elif o["dim"] == "current":
                 el = CCElectrode(h, rec, es)
                 if es["re"] > 0 and es["ce"] > 0:               # the electrode is stiff: the explicit coupling must be stable
                     cseg = rec["seg"].area() * rec["seg"].cm * 0.01
@@ -875,6 +1132,9 @@ class Network(object):
             noise = self.noise.get(i["name"])
             el = rec.get("el")
             es = rec["es"]
+            if rec["ps"] and el is None:
+                raise Problem("[cell %s] a patching pipette needs an [out %s]: it is the amplifier that holds or injects"
+                              % (i["name"], i["name"]))
             if es["seal"] > 0 and el is None:
                 raise Problem("[cell %s] seal_resistance needs an [out %s]: the seal is part of an electrode that injects or clamps"
                               % (i["name"], i["name"]))
@@ -884,7 +1144,7 @@ class Network(object):
             else:
                 if el is None:
                     raise Problem("[in %s] records current but there is no [out %s] to inject it" % (i["name"], i["name"]))
-                self.in_e.append(("i", el.clamp._ref_amp if el.kind == "i" else el.clamp._ref_i))
+                self.in_e.append(("i", None if el.clamp is None else el.clamp._ref_amp if el.kind == "i" else el.clamp._ref_i))
                 read = el.read_i
             filt = Bessel4(es["bw"]) if es["bw"] > 0 else None            # the step was made small enough for it
             self.in_read.append((read, noise, filt))
@@ -1060,13 +1320,48 @@ def electrode_note(es):
     return " [" + ", ".join(bits) + "]" if bits else ""
 
 
+def patch_note(ps, es):
+    """A few words for -n about a patching pipette: what was set, never what was drawn."""
+    ev = []
+    if ps["contact"] is not None:
+        ev.append("contact %g s" % (ps["contact"] / 1000.0))
+    if ps["suction"] is not None:
+        ev.append("suction %g s" % (ps["suction"] / 1000.0))
+    if ps["break_in"]:
+        ev.append("break-in " + ", ".join("%g s" % (x / 1000.0) for x in ps["break_in"]))
+    bits = ["patch: pipette %g MOhm" % ps["rp"], "starts %s" % ps["start"].replace("_", "-")] + ev
+    if es["ljp"] != 0:
+        bits.append("pipette offset %s (LJP %+g mV)" % ("nulled in the bath" if ps["null_offset"] else "not nulled", es["ljp"]))
+    rest = electrode_note(es)
+    return " [" + ", ".join(bits) + "]" + rest
+
+
+def notes(net):
+    """Lines LCG2 prints when a run starts: what the amplifier's pipette offset does to the potentials of a patching pipette."""
+    out = []
+    for name, rec in net.cells.items():
+        ps, es = rec.get("ps"), rec["es"]
+        if not ps or es["ljp"] == 0:
+            continue
+        if ps["null_offset"]:
+            out.append("%s: pipette offset nulled in the bath (junction potential %+g mV): once in the cell, potentials read %g mV "
+                       "%s than they are" % (name, es["ljp"], abs(es["ljp"]), "higher" if es["ljp"] > 0 else "lower"))
+        else:
+            out.append("%s: pipette offset not nulled: in the bath the junction potential (%+g mV) shows as a current, in the cell it "
+                       "is gone" % (name, es["ljp"]))
+    return out
+
+
 def describe(net):
     cells = []
     for name, rec in net.cells.items():
         cells.append(dict(name=name, model=("same cell as " + rec["shared"]) if rec.get("shared") else
                           (rec["spec"].get("model") or rec["spec"].get("morphology")),
                           sections=len(rec["sections"]), segments=sum(s.nseg for s in rec["sections"]),
-                          electrode=rec["loc"] + electrode_note(rec["es"]), v_rest_mV=round(float(rec["seg"].v), 3)))
+                          electrode=rec["loc"] + (patch_note(rec["ps"], rec["es"]) if rec.get("ps") else electrode_note(rec["es"])),
+                          v_rest_mV=round(float(rec["seg"].v), 3)))
+        if rec.get("ps"):          # what the pipette and the cell turned out to be: kept in network.json, not shown by -n
+            cells[-1]["patch_truth"] = rec["ps"]["truth"]
     syns = [dict(name=s["name"], pre=s["pre"], post=s["post"], type=s["type"]) for s in net.syns]
     return cells, syns
 
@@ -1120,7 +1415,7 @@ def serve():
             cells, syns = describe(net)
             pipe.reply({"ok": True, "protocol": PROTOCOL, "neuron": h.nrnversion(0), "python": sys.version.split()[0],
                         "cells": cells, "synapses": syns, "files": net.files, "dt_ms": msg["dt_ms"], "step_ms": net.dt_max,
-                        "celsius": msg["celsius"]})
+                        "celsius": msg["celsius"], "notes": notes(net)})
         except Problem as e:
             pipe.reply({"ok": False, "error": str(e)})
             return 1

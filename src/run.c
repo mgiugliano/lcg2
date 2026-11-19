@@ -33,6 +33,7 @@
 #include "backend_neuron.h"
 #include "engine.h"
 #include "json.h"
+#include "mtest.h"
 #include "platform.h"
 #include "record.h"
 #include "run.h"
@@ -104,29 +105,111 @@ static char *config_text(const Table *t, Err *err)
 
 typedef struct {
     Sink       rec;                   /* the recorder's sink                            */
+    Recorder  *r;
     Archive   *a;
+    const Config *c;
+    int        quiet;
     int64_t    samples;
     int        trials;
+    /* the membrane test (membrane_test = yes in an [in]): per active input, the trial's current and command */
+    double    *mt_cur[CFG_MAX_IN], *mt_cmd[CFG_MAX_IN];
+    int64_t    mt_n;
+    int        mt_said;               /* the note that it needs voltage clamp was given */
 } Tee;
+
+static void mt_free(Tee *t)
+{
+    int k;
+    for (k = 0; k < CFG_MAX_IN; k++) {
+        free(t->mt_cur[k]); free(t->mt_cmd[k]);
+        t->mt_cur[k] = t->mt_cmd[k] = NULL;
+    }
+}
 
 static int tee_begin(void *u, const TrialInfo *ti, Err *err)
 {
     Tee *t = (Tee *)u;
+    int k, j;
+    int64_t i;
+    mt_free(t);
+    t->mt_n = ti->n;
+    for (k = 0; k < ti->nin; k++) {
+        const InCh *in = &t->c->in[ti->ai[k].in];
+        if (!in->mtest) continue;
+        for (j = 0; j < ti->ncmd; j++)
+            if (strcmp(ti->cmd[j].out_name, in->name) == 0) break;
+        if (t->c->mode != MODE_VC || j == ti->ncmd || strcmp(ti->ai[k].unit, "pA") != 0 || strcmp(ti->cmd[j].unit, "mV") != 0) {
+            if (!t->mt_said) {
+                archive_log(t->a, "note  membrane test of %s: it needs voltage clamp, a command in mV on [out %s] from the "
+                            "stimulus and a current in pA on [in %s]; not done", in->name, in->name, in->name);
+                if (!t->quiet)
+                    fprintf(stderr, "lcg2: %s: no membrane test: it needs voltage clamp (-m vc), a command in mV on [out %s] "
+                            "and a current in pA on [in %s]\n", in->name, in->name, in->name);
+                t->mt_said = 1;
+            }
+            continue;
+        }
+        t->mt_cur[k] = (double *)calloc((size_t)ti->n, sizeof(double));
+        t->mt_cmd[k] = (double *)malloc((size_t)ti->n * sizeof(double));
+        if (!t->mt_cur[k] || !t->mt_cmd[k]) { mt_free(t); err_set(err, "out of memory (membrane test)"); return -1; }
+        for (i = 0; i < ti->n; i++) t->mt_cmd[k][i] = ti->cmd[j].x[i] * ti->cmd[j].scale;
+    }
     return t->rec.begin(t->rec.user, ti, err);
 }
 
 static int tee_block(void *u, int64_t first, int64_t count, const double *const x[], Err *err)
 {
     Tee *t = (Tee *)u;
+    int k;
     t->samples += count;
+    for (k = 0; x[k]; k++)
+        if (t->mt_cur[k] && first + count <= t->mt_n)
+            memcpy(t->mt_cur[k] + first, x[k], (size_t)count * sizeof(double));
     return t->rec.block(t->rec.user, first, count, x, err);
+}
+
+/* The membrane test of a trial: printed, logged, and kept with the input's dataset. */
+static int mt_report(Tee *t, const TrialInfo *ti, const TrialRecord *rec, Err *err)
+{
+    int k;
+    for (k = 0; k < ti->nin; k++) {
+        MTest m;
+        char r[40], line[400];
+        if (!t->mt_cur[k]) continue;
+        if (mtest_analyse(t->mt_cmd[k], t->mt_cur[k], rec->recorded, (double)ti->rate_p / (double)ti->rate_q, &m) < 0) {
+            archive_log(t->a, "membrane test  trial %s  %s: %s", ti->name, ti->ai[k].name, m.why);
+            continue;
+        }
+        mtest_format_r(m.r_mohm, r, sizeof r);
+        if (m.cell)
+            snprintf(line, sizeof line, "%s  R %s: Ra %.2f MOhm, Rm %.1f MOhm, Cm %.2f pF (tau %.0f us), I hold %.1f pA",
+                     ti->ai[k].name, r, m.ra_mohm, m.rm_mohm, m.cm_pf, m.tau_ms * 1000.0, m.ihold_pa);
+        else
+            snprintf(line, sizeof line, "%s  R %s, I hold %.1f pA", ti->ai[k].name, r, m.ihold_pa);
+        archive_log(t->a, "membrane test  trial %s  %s%s%s%s", ti->name, line, m.cell ? "" : "  (", m.cell ? "" : m.why,
+                    m.cell ? "" : ")");
+        if (!t->quiet) fprintf(stderr, "lcg2: trial %s  %s\n", ti->name, line);
+        if (record_ai_attr(t->r, k, "membrane_test_dv_mV", m.dv_mv, err) < 0 ||
+            record_ai_attr(t->r, k, "membrane_test_R_MOhm", m.r_mohm, err) < 0 ||
+            record_ai_attr(t->r, k, "membrane_test_Ihold_pA", m.ihold_pa, err) < 0)
+            return -1;
+        if (m.cell && (record_ai_attr(t->r, k, "membrane_test_Ra_MOhm", m.ra_mohm, err) < 0 ||
+                       record_ai_attr(t->r, k, "membrane_test_Rm_MOhm", m.rm_mohm, err) < 0 ||
+                       record_ai_attr(t->r, k, "membrane_test_Cm_pF", m.cm_pf, err) < 0 ||
+                       record_ai_attr(t->r, k, "membrane_test_tau_ms", m.tau_ms, err) < 0))
+            return -1;
+    }
+    return 0;
 }
 
 static int tee_end(void *u, const TrialInfo *ti, const TrialRecord *rec, Err *err)
 {
     Tee *t = (Tee *)u;
-    int rc = t->rec.end(t->rec.user, ti, rec, err);
+    int rc = mt_report(t, ti, rec, err);
     int k;
+    mt_free(t);
+    if (rc == 0) rc = t->rec.end(t->rec.user, ti, rec, err);
+    else { Err e2; t->rec.end(t->rec.user, ti, rec, &e2); }
     t->trials++;
     archive_log(t->a, "trial %d/%d  %s%s%s  start %.3f s  delay %.3f s  utc %s  recorded %lld of %lld samples%s%s",
                 ti->index + 1, ti->count, ti->name, ti->variables[0] ? "  " : "", ti->variables,
@@ -167,8 +250,11 @@ static void neuron_archive(Archive *ar, const Backend *be, const Config *c, cons
                 if (p && archive_copy(ar, p, NULL, &e) < 0)
                     archive_log(ar, "warning  the model file %s could not be copied: %s", p, e.msg);
             }
+            const Json *notes = json_get(j, "notes");
             archive_log(ar, "neuron  NEURON %s, Python %s, %d cell(s), %d synapse(s), adapter %s", json_str_or(j, "neuron", "?"),
                         json_str_or(j, "python", "?"), c->n_cells, c->n_synapses, "lcg2_neuron.py");
+            for (k = 0; notes && k < notes->n; k++)
+                if (json_str(json_at(notes, k))) archive_log(ar, "note  %s", json_str(json_at(notes, k)));
             json_free(j);
         }
     }
@@ -451,7 +537,7 @@ int run_execute(const RunParams *rp, Err *err)
         memset(&no, 0, sizeof no);
         neuron_script_path(c, script, sizeof script);
         snprintf(logpath, sizeof logpath, "%s/neuron.log", ar.dir);
-        no.python = neuron_python(c); no.script = script; no.stderr_path = logpath;
+        no.python = neuron_python(c); no.script = script; no.stderr_path = logpath; no.quiet = o->quiet;
         be = neuron_backend_new(&no);                   /* copies the strings */
     } else {
         be = sim_backend_new(&rp->sim);
@@ -461,7 +547,7 @@ int run_execute(const RunParams *rp, Err *err)
     if (o->realtime) clock_init_real(&clock); else clock_init_virtual(&clock);
     memset(&tee, 0, sizeof tee);
     record_sink(rec, &tee.rec);
-    tee.a = &ar;
+    tee.a = &ar; tee.r = rec; tee.c = c; tee.quiet = o->quiet;
     sink.begin = tee_begin; sink.block = tee_block; sink.end = tee_end; sink.user = &tee;
     job.cfg = c; job.backend = be; job.clock = &clock; job.sink = &sink;
     job.timing = timing; job.quiet = o->quiet;
@@ -470,6 +556,7 @@ int run_execute(const RunParams *rp, Err *err)
         fprintf(stderr, "lcg2: running %d trial(s) on the %s, %s; writing %s\n", ntrials, be->name,
                 o->realtime ? "in real time" : "in simulated time (-R follows the clock)", ar.h5);
     status = engine_run(&job, &rep, err);
+    mt_free(&tee);
     if (c->device == DEV_NEURON) neuron_archive(&ar, be, c, err->msg);
     if (c->device == DEV_NEURON) neuron_backend_free(be); else sim_backend_free(be);
 

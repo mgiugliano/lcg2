@@ -523,7 +523,7 @@ static const char *const rig_keys[] = { "device", "mode", "rate", "trigger",
 static const char *const out_keys[] = { "line", "digital", "gain_cc", "unit_cc",
     "gain_vc", "unit_vc", "cal_offset", "cal_scale", "limit", "rest", "skip", NULL };
 static const char *const in_keys[] = { "line", "range", "terminal", "gain_cc",
-    "unit_cc", "gain_vc", "unit_vc", "cal_offset", "cal_scale", "skip", NULL };
+    "unit_cc", "gain_vc", "unit_vc", "cal_offset", "cal_scale", "skip", "membrane_test", NULL };
 
 static int build_rig(const Table *t, Mode mode_flag, Config *c, Err *err)
 {
@@ -707,6 +707,7 @@ static int build_in(const Table *t, const char *sect, const char *name, Config *
     strcpy(in->name, name);
 
     if ((en = get(t, sect, "skip")) && get_yesno(t, en, &in->skip, err) < 0) return -1;
+    if ((en = get(t, sect, "membrane_test")) && get_yesno(t, en, &in->mtest, err) < 0) return -1;
     en = get(t, sect, "line");
     if (!en)
         return cfg_err(t, header(t, sect), err, "line is required (ai0 ... ai15)");

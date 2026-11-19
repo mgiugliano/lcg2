@@ -1,0 +1,9 @@
+sg 2 stimulus
+# A cell-attached recording (use -m vc with -P firing of rig_patch.ini): the pipette is held at 0 mV for
+# half a second and records the current through the patch of membrane under it. Nothing is injected into
+# the cell, which is not broken into: its spikes show as small currents through the patch.
+rate 50kHz
+
+channel P1 unit=mV rest=0 {
+    500ms dc(0)
+}

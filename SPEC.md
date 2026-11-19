@@ -423,6 +423,40 @@ Rs compensation, and `rs_lag = 10us` by default (no published typical value was 
 **Not modelled:** whole-cell capacitance compensation (Cm), Rs prediction (supercharging), a seal that changes in time, a drifting junction potential, filtering of
 the command, pipette capacitance dependence on the immersion depth.
 
+### 4g. Patching (stage 1: a scripted timeline), as built (unreleased, 2026-11-19)
+
+Asked by the owner: simulate the pipette in the bath, the approach, the gigaseal and the break-in. Decided by the owner (2026-11-19):
+a scripted timeline first, then a live mode (stage 2); outcomes random but seeded; the timeline keys named `patch_*`; the cell-attached patch passes the cell's action
+currents; LCG2 prints a seal-test and membrane-test readout, and nulls the pipette offset in the bath; suction as simple events.
+
+- **Keys** of a `[cell]` with `pipette_resistance`: see docs/14 "Patching". A patching pipette refuses the plain electrode's keys
+  (they mean other things) and `rs_compensation` (stage 1: the compensation would need an Rs *estimate* dial, not the drawn truth).
+- **Circuit:** a NEURON `LinearMechanism` with the tip node (and in current clamp the amplifier node with `Cp - Cn`): Rp to the
+  amplifier, a resistance to the bath (open tip 1e-6 MOhm, then the seal), a path to the cell (none; the patch `Rpatch || Cpatch`;
+  `Ra - Rp`). The membrane row is in mA/cm2 (scaled by 100/area), the others in nA, nF, uS: measured on NEURON 8.2.6 and 9.0.2 against
+  analytic solutions. The conductances are updated every 0.1 ms and exactly at every event; the source every step.
+- **Junction potential and offset:** an emf LJP in the pipette until the break-in; the offset `O = LJP` when nulled (default), so that the
+  bath reads 0 pA at 0 mV and whole-cell gives recorded = Vm + LJP, cell at command - LJP, as for the plain electrode (SPEC 4f).
+- **Timeline:** `patch_start` (bath, cell_attached, whole_cell), `patch_contact`, `patch_suction`, `patch_break_in` (one or more) in time from the start of the
+  first trial (after `sim_settle`).
+- **Draws** (once, from `patch_seed` and the cell's name, `random.Random("seed:name")`, a fixed order whatever is used): contact rise
+  U(0.1, 0.3) x Rp over 0.3 s; seal forms with probability 1 - `seal_failure` (0.15), to `seal_target` x exp(0.35 N) (default 2 GOhm),
+  else to a log-uniform 50 to 500 MOhm; seal time constant U(1, 4) s on a log scale of the resistance; each break-in attempt succeeds with
+  `break_in_success` (0.7); Ra = `access_resistance` x exp(0.25 N), at least 1.2 Rp; Ra drift U(0, 50) % per 10 minutes, linear. Kept in
+  network.json (`patch_truth`), never printed.
+- **Membrane test** (`membrane_test = yes` in `[in]`, voltage clamp; src/mtest.c, independent of the backend): R, I hold, and the
+  single-compartment fit Ra = dV/(I0 + dI), Rm = R - Ra, Cm = tau (Ra + Rm)/(Ra Rm), fitted from the second sample after the step to 5 %
+  of its start; refused below 5 samples per tau, when still changing half-way through the step, or when Ra >= Rm. Printed, logged, kept
+  as attributes of the input's dataset.
+
+**Choices which the owner may veto:** the defaults and distributions above; the patch as passive (10 GOhm, 0.05 pF), with no single
+channels; the contact as a resistance to the bath; the seal growing on a log scale; Ra as a resistance after the break-in, with no
+residual patch capacitance; the membrane test's fit window (5 %), its refusals and the attribute names; `rs_compensation` refused on a
+patching pipette; a second run (`patch_start = whole_cell`, same seed) for whole-cell current clamp, since a run has one mode.
+
+**Found while building it:** StimGen reads a channel's `rest=` with a unit (`rest=-70mV`) in volts while the samples stay in the
+channel's unit; written without a unit it is right (docs/07). To report upstream.
+
 ## 5. Hardware facts used (USB-6343 datasheet)
 
 - 4 AO, 16 bit, +/-10 V, simultaneous update; output FIFO 8,191 samples shared

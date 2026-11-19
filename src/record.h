@@ -107,4 +107,8 @@ int record_close(Recorder *r, Err *err);
 /* 1 if any HDF5 call failed during this process (see record.c). */
 int record_had_error(void);
 
+/* While a trial is open (between the sink's begin and end): a number attached to the dataset of active
+ * input k (its order in TrialInfo.ai), such as the result of a membrane test.  Returns 0 or -1. */
+int record_ai_attr(Recorder *r, int k, const char *name, double value, Err *err);
+
 #endif /* LCG2_RECORD_H */

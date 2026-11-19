@@ -177,6 +177,7 @@ typedef struct {
     double gain[2];
     char   unit[2][8];
     double cal_offset, cal_scale;
+    int    mtest;                /* membrane_test = yes: a seal test / membrane test of every trial (src/mtest.h) */
 } InCh;
 
 typedef struct {

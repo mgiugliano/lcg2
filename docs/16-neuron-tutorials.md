@@ -6,7 +6,7 @@
 > [`docs/figures/make_neuron_figures.py`](figures/make_neuron_figures.py), which runs `lcg2` itself.
 > The reference for all keys is [14 Virtual cells](14-neuron-models.md).
 
-These eleven tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
+These twelve tutorials teach patch-clamp electrophysiology on cells that exist only in NEURON, and then how to put
 **your own** cell on the rig. You do not need to know NEURON. The kit has everything.
 
 **Before you start**
@@ -33,6 +33,7 @@ These eleven tutorials teach patch-clamp electrophysiology on cells that exist o
 | I | [Comparing cells, repeating runs](#i-comparing-cells-and-repeating-a-run) | profiles, batches, the run folder |
 | J | [A real electrode](#j-a-real-electrode-bridge-balance-compensation-noise-and-aec) | pipette resistance and capacitance, bridge balance, neutralisation, series-resistance compensation, noise, active electrode compensation |
 | K | [Seal, junction potential, bandwidth](#k-the-seal-the-junction-potential-and-the-amplifiers-bandwidth) | what a leaky seal, a junction offset and a filtered amplifier do to a recording |
+| L | [Patching a cell](#l-patching-a-cell-from-the-bath-to-whole-cell) | the pipette in the bath, the seal, cell-attached recording, the break-in, the seal test and the membrane test |
 
 ---
 
@@ -645,6 +646,99 @@ small enough within trials (6.25 µs for 2 kHz), whatever `sim_dt` says.
 becomes 0.137 mV rms through 2 kHz (white noise keeps a share of its power equal to the filter's noise bandwidth, about 1.05 × the
 corner, over half the sampling rate); give the electrode a resistance and measure how the bridge-balanced onset of tutorial J
 changes with the filter; correct the potentials of a junction-offset recording by hand.
+
+---
+
+## L. Patching a cell: from the bath to whole-cell
+
+**Goal:** go through what you do at the rig before any recording: the pipette in the bath, touching the cell, the seal, the
+break-in, and the seal test that guides you through all of it.
+
+[`rig_patch.ini`](../examples/student_kit/rig_patch.ini) gives the cell a **patching pipette** (`pipette_resistance` and its
+keys, see [14](14-neuron-models.md#patching-from-the-bath-to-whole-cell)) and a timeline: in the bath until 2 s, touching the
+cell at 2 s, suction at 3 s, break-in at 14 s and, if that fails, again at 16 s. [`seal_test.sg`](../examples/student_kit/seal_test.sg)
+is an amplifier's seal test: a +5 mV pulse ten times a second, held at 0 mV for 10 s and then at −70 mV. `membrane_test = yes` in
+`[in P1]` makes LCG2 measure every pulse and print it:
+
+```console
+$ ./lcg2 -m vc -c examples/student_kit/rig_patch.ini examples/student_kit/seal_test.sg
+```
+
+```console
+lcg2: trial 0000  P1  R 5.00 MOhm, I hold 0.0 pA
+lcg2: trial 0024  P1  R 6.13 MOhm, I hold 1.2 pA
+lcg2: trial 0040  P1  R 65.09 MOhm, I hold 5.9 pA
+lcg2: trial 0060  P1  R 886.72 MOhm, I hold 6.4 pA
+lcg2: trial 0099  P1  R 1.75 GOhm, I hold 6.4 pA
+lcg2: trial 0100  P1  R 1.78 GOhm, I hold -33.4 pA
+lcg2: trial 0159  P1  R 1.82 GOhm, I hold -32.1 pA
+lcg2: trial 0161  P1  R 242.84 MOhm: Ra 10.98 MOhm, Rm 231.9 MOhm, Cm 12.87 pF (tau 135 us), I hold -136.8 pA
+```
+
+![patching](figures/fig-nrn-patch.svg)
+
+**Reading it.**
+
+* **In the bath** the test pulse sees only the pipette: R = 5.00 MΩ, the `pipette_resistance` (5 mV / 5 MΩ = 1 nA). No current
+  flows at 0 mV although the pipette solution and the bath differ by a junction potential of 12 mV: the amplifier's **pipette
+  offset** was nulled in the bath, as you do on a rig (`pipette_offset = null`, the default).
+* **Touching the cell** (2 s) blocks the tip a little: R rises to 6.1 MΩ. That small rise is how you know you are on the cell.
+* **Suction** (3 s): the membrane seals onto the glass and R climbs, through tens and hundreds of MΩ, to **1.8 GΩ**: a gigaseal.
+  The cell is now **cell-attached**: the pipette sees the seal in parallel with a tiny patch of membrane in series with the cell.
+  At 10 s the seal test moves to −70 mV, and the holding current, −32 pA, is the leak through the seal: this seal is 2.2 GΩ
+  (−70 mV / 2.2 GΩ = −32 pA); the 1.8 GΩ the test reads is the seal in parallel with the patch and the cell behind it.
+* **Break-in.** The suction pulse at 14 s fails (this pipette needed two: it happens); the one at 16 s ruptures the patch. The
+  pulse now charges the cell through the access resistance: a capacitive transient appears, and LCG2 fits it as an amplifier's
+  membrane test does: **Ra 11.0 MΩ, Rm 232 MΩ, Cm 12.9 pF** (the soma is 12.6 pF; the fit is about 2 % high because NEURON's step
+  is first order, see [14](14-neuron-models.md#patching-from-the-bath-to-whole-cell)).
+
+What the pipette and the cell turn out to be (how good the seal is and how fast it forms, whether a break-in works, the access
+resistance and how it creeps up) is drawn from `patch_seed`: the same seed is the same cell, in voltage clamp and in current clamp;
+another seed is another cell. The true values are written in `.STEM/network.json` (`patch_truth`): measure first, then look.
+
+**A bad seal.** The profile `other_cell` is another pipette, whose seal stops at about 150 MΩ:
+
+```console
+$ ./lcg2 -m vc -P other_cell -c examples/student_kit/rig_patch.ini examples/student_kit/seal_test.sg
+```
+
+R never passes 108 MΩ, and after the break-in the holding current at −70 mV is −632 pA, almost all of it through the leak. The
+membrane test then reads Cm 14.1 pF for the same 12.6 pF soma: its formula assumes that all the current goes through the cell,
+which is no longer true. This is why a cell with a seal below a gigaohm is discarded.
+
+**The junction potential, again.** With the offset nulled in the bath, the junction potential is gone once you are in the cell,
+but the offset is still there: the cell sits at the command minus 12 mV. Start in whole-cell (the same cell, `-P whole_cell`) in
+current clamp:
+
+```console
+$ ./lcg2 -m cc -P whole_cell -c examples/student_kit/rig_patch.ini examples/student_kit/small_step.sg
+```
+
+The resting potential reads −51.1 mV; the cell is really at −63.1 mV (the reading minus 12 mV). With `-P no_offset` the bath shows a
+current of 2400 pA at 0 mV (12 mV / 5 MΩ) and nothing needs correcting in the cell: that is why the offset is nulled, and why the junction
+potential must then be subtracted from every potential you report (tutorial K2).
+
+**Cell-attached recording.** Before breaking in you can already record the cell's firing, without touching its inside. The profile
+`firing` is a cell that fires on its own, sealed; hold the pipette at 0 mV:
+
+```console
+$ ./lcg2 -m vc -P firing -c examples/student_kit/rig_patch.ini examples/student_kit/cell_attached.sg
+```
+
+Each spike pushes a current through the patch, `Cpatch dV/dt` plus a little through its resistance: a fast biphasic deflection
+from a baseline of about 6 pA down to −11.5 pA and back above it (right panel of the figure; the first spike, from rest, goes to
+−16 pA), 31 of them in half a second. This is how firing is recorded in a slice without
+changing the cell's interior.
+
+**Try.** Change `patch_seed` and patch a few cells: how many seal, how many need a second suction? Set `seal_failure = 0` and
+`break_in_success = 1` to make every attempt work. The access resistance creeps up during a long recording, a little more in
+some cells than in others (`access_drift_per_10min` in `network.json`): repeat the seal test in whole-cell for a few minutes and
+follow Ra. Set `cp_compensation = 0` and see the pipette's capacitive spike at every step of the seal test, as before you turn that
+knob on a rig.
+
+**Where this stops.** The timeline is written in the configuration: you do not press the suction yourself yet (a live mode is the
+next step). A run is in one mode, so whole-cell current clamp is a second run of the same cell (`-P whole_cell`, same seed). Series
+resistance compensation is not available on a patching pipette yet.
 
 ---
 

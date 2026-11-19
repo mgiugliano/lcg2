@@ -62,7 +62,7 @@ where they come from. The wording is checked by the test table.
 | `only used with device = neuron` | remove the `sim_*` key, or set `device = neuron` |
 | `device = neuron needs at least one [cell NAME] section` / `[out P1] has no [cell P1]` | give every pipette a cell of its name |
 | `needs pre = NAME ...` / `'Z' is not a [cell] of this file` / `unknown key (allowed: pre, post, ...)` | a `[synapse]` mistake |
-| the messages of the NEURON adapter (`cannot import NEURON`, `... is not a parameter of the model ...`, `... does not exist ...`, `the NEURON adapter stopped ...`) | see the table in [14 Virtual cells](14-neuron-models.md#when-it-goes-wrong) |
+| the messages of the NEURON adapter (`cannot import NEURON`, `... is not a parameter of the model ...`, `... does not exist ...`, `the NEURON adapter stopped ...`, and those of a patching pipette: `suction needs a contact before it`, `a patching pipette (pipette_resistance) has its own keys ...`, ...) | see the table in [14 Virtual cells](14-neuron-models.md#when-it-goes-wrong) |
 
 ## `[out NAME]` and `[in NAME]`
 
@@ -157,6 +157,8 @@ Idle values of skipped outputs are not checked.
 | `start on trigger: no trigger line is configured; press Enter to start` | not an error: the prompt | press Enter, or add `trigger = PFIn` |
 | `aborted after N of M trial(s): outputs at rest` | Ctrl-C or kill; exit status 2 | the outputs were put at rest |
 | `warning: trial 0003: input P1: N samples beyond the range of 1 V (clamped)` | an input would exceed its range | raise the `range` of that `[in]`, or lower the stimulus |
+| `P1: no membrane test: it needs voltage clamp (-m vc), a command in mV on [out P1] and a current in pA on [in P1]` | a note, not an error: `membrane_test = yes` in a run where it cannot work; the run goes on | run in voltage clamp |
+| `P1: pipette offset nulled in the bath (junction potential +12 mV): once in the cell, potentials read 12 mV higher than they are` | a note when a run with a patching pipette starts | subtract the junction potential from the potentials you report |
 | `ERROR: the outputs may NOT be at rest: ...` | putting the outputs at rest failed (shown even with `-q`); exit status 2 | check the outputs by hand before touching anything |
 | `not enough free disk space for the data in the current folder: this run needs about X MB and Y MB are free (nothing was written)` | the free-space check: the run is expected to take more than is free, exit status 1 | free space, or shorten the run |
 | `ERROR: the integrity record (digests) could not be written: ...` (also `ERROR: the data file could not be closed properly: ...`), exit status 2 | the data file was written but its checksum list could not be: do not trust the folder until you have recomputed `SHA256SUMS` | check the disk, repeat the run |

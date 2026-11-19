@@ -16,14 +16,14 @@ that the repository was left clean.
 
 | Suite | Command it runs | Checks | What it proves |
 |:--|:--|:--|:--|
-| unit | `build/unit` | 185 | units and exact time arithmetic, SHA-256 against the FIPS vectors, small helpers |
+| unit | `build/unit` | 203 | units and exact time arithmetic, SHA-256 against the FIPS vectors, the membrane test on synthetic transients, small helpers |
 | configuration and CLI | `tests/run_tests.py` | 183 | a table of good and bad commands and configurations: the exact message and exit status of each; every example loads; the commands of the manual |
 | stimulus | `tests/test_stim.py` | 186 | StimGen integration: samples equal `sg render`, trial order and seeds equal `sg expand`, unit and clip checks, never a silent clip |
 | engine | `tests/test_engine.py` | 85 | scheduling (`period`, `gap`, late trials, trigger), rest values on every way out, abort with real signals, loopback wiring, noise, range clamping |
 | recording | `tests/test_record.py` | 100 | the HDF5 layout read back with h5py, the run folder and its checksums, abort, `kill -9`, full disk, unwritable folder, free-space refusal |
-| NEURON | `tests/test_neuron.py` | 119 | equality with a plain NEURON script, voltage clamp, synapse, state between trials, external models, mistakes, killed adapter, Ctrl-C, the student kit, the pipette and amplifier model against exact solutions and the analogue filter, and the numbers the tutorials of docs/16 quote |
+| NEURON | `tests/test_neuron.py` | 159 | equality with a plain NEURON script, voltage clamp, synapse, state between trials, external models, mistakes, killed adapter, Ctrl-C, the student kit, the pipette and amplifier model against exact solutions and the analogue filter, patching (bath, seal, cell-attached, whole-cell, the membrane test) against the circuit's values, and the numbers and lines the tutorials of docs/16 quote |
 | multi-patch | `tests/test_multipatch.py` | 25 | three pipettes and a digital line on the loopback, end to end: gains, calibration, rest values, no crosstalk, voltage clamp, profiles, protocol noise, no hardware |
-| documents | `tests/test_docs.py` | 76 commands | every `$ ./lcg2 ...` line of the manual runs with the exit status it states |
+| documents | `tests/test_docs.py` | 80 commands | every `$ ./lcg2 ...` line of the manual runs with the exit status it states |
 | clean | `tests/check_clean.py` | | no data file or run folder was left in the repository |
 
 ## Checking the environment

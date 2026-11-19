@@ -441,6 +441,42 @@ def fig_seal_junction_bandwidth():
     save(fig, "fig-nrn-seal-junction-bandwidth.svg")
 
 
+def fig_patch():
+    h5 = run("rig_patch.ini", "seal_test.sg", "-m", "vc")
+    with h5py.File(h5, "r") as f:
+        n = len([k for k in f if k.startswith("trial_")])
+        t = [f["trial_%04d" % k].attrs["start_ns"] / 1e9 for k in range(n)]
+        r = [f["trial_%04d/ai/P1" % k].attrs["membrane_test_R_MOhm"] for k in range(n)]
+        rate = float(f["trial_0000"].attrs["rate_hz"])
+        traces = {k: f["trial_%04d/ai/P1" % k][:] for k in (10, 120, 170)}
+    fig, (a, b, c) = plt.subplots(1, 3, figsize=(12, 3.8), gridspec_kw={"width_ratios": [1.4, 1, 1]})
+    a.semilogy(t, r, ".", color=BLUE, ms=3)
+    for x, lab in ((2, "contact"), (3, "suction"), (10, "hold −70 mV"), (14, "break-in fails"), (16, "break-in")):
+        a.axvline(x, color=GREY, lw=0.6, ls="--")
+        a.text(x + 0.15, 3.2e3 if lab != "hold −70 mV" else 30, lab, rotation=90, fontsize=7, color=GREY, va="top")
+    a.set_ylim(3, 5e3)
+    a.set_xlabel("time (s)")
+    a.set_ylabel("seal test: R (MΩ)")
+    a.set_title("from the bath to whole-cell: the resistance after each pulse", fontsize=9)
+    tt_ = [x / rate * 1000 for x in range(len(traces[10]))]
+    for k, lab, col in ((10, "bath (5 MΩ)", ORANGE), (120, "gigaseal (1.8 GΩ)", BLUE), (170, "whole-cell", GREEN)):
+        y = traces[k] - traces[k][400:500].mean()
+        b.plot(tt_, y, color=col, label=lab)
+    b.set_xlim(3, 17)
+    b.set_xlabel("time (ms)")
+    b.set_ylabel("current minus holding (pA)")
+    b.legend(frameon=False, fontsize=8)
+    b.set_title("the +5 mV test pulse", fontsize=9)
+    i, r2 = trial(run("rig_patch.ini", "cell_attached.sg", "-m", "vc", "-P", "firing"), 0, "ai")
+    c.plot([x / r2 * 1000 for x in range(len(i))], i, color=RED, lw=0.8)
+    c.set_xlim(100, 300)
+    c.set_xlabel("time (ms)")
+    c.set_ylabel("current (pA)")
+    c.set_title("cell-attached: the cell's spikes,\nseen through the patch", fontsize=9)
+    fig.tight_layout()
+    save(fig, "fig-nrn-patch.svg")
+
+
 def fig_circuit():
     fig, (a, b) = plt.subplots(1, 2, figsize=(10.5, 3.6))
     for ax in (a, b):
@@ -495,7 +531,7 @@ def fig_circuit():
     ax.text(16.4, 3.9, "the cell\n(Cm, channels)", fontsize=9, va="center", color=BLUE)
     ax.plot([14, 14], [3.2, 1.0], color=INK, lw=1.2)
     ax.plot([13, 15], [1.0, 1.0], color=INK, lw=1.2)
-    ax.text(10, 9, "amplifier: command + a * Rs * I  (rs_compensation, a < 1)\nrecorded I - Cp_comp * dV/dt  (cp_compensation)", ha="center", fontsize=8, color=GREEN)
+    ax.text(10, 9, "amplifier: command + Vc, lag dVc/dt = a Rs I - Vc  (rs_compensation a < 1, rs_lag)\nrecorded I - Cp_comp * dV/dt  (cp_compensation)", ha="center", fontsize=8, color=GREEN)
     save(fig, "fig-nrn-electrode-circuit.svg")
 
 
@@ -519,3 +555,4 @@ if __name__ == "__main__":
     fig_aec()
     fig_circuit()
     fig_seal_junction_bandwidth()
+    fig_patch()

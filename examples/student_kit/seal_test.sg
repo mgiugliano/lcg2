@@ -1,0 +1,22 @@
+sg 2 protocol
+# The seal test of a patch-clamp amplifier (use -m vc): a +5 mV pulse, ten times a second, for 20 s.
+# For the first 10 s the pipette is held at 0 mV (in the bath and while the seal forms), then at -70 mV
+# (in the cell). Every trial is one pulse; with membrane_test = yes in [in P1] the program prints the
+# resistance after each one, and once in the cell, Ra, Rm and Cm.
+# 100 kHz, because the transient of a small cell lasts a tenth of a millisecond.
+# rest=$hold holds the pipette there between the pulses too. A rest written with a unit (rest=-70mV) is read by
+# StimGen 379434b in volts, not in the unit of the channel: write it as a plain number, as here.
+sweep    hold = [0, -70]          # mV (written without a unit: see rest= below)
+repeat   100
+order    grouped
+period   100ms
+
+stimulus {
+    rate 100kHz
+    channel P1 unit=mV rest=$hold {
+        5ms  dc($hold)
+        @pulse
+        10ms dc($(hold + 5))
+        5ms  dc($hold)
+    }
+}

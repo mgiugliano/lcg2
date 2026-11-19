@@ -477,6 +477,13 @@ static int sink_end(void *user, const TrialInfo *ti, const TrialRecord *rec, Err
     return 0;
 }
 
+int record_ai_attr(Recorder *r, int k, const char *name, double value, Err *err)
+{
+    if (!r->open_trial || k < 0 || k >= r->nai) { err_set(err, "internal error: no open trial for %s", name); return -1; }
+    if (attr_f64(r->ai[k], name, value) < 0) return hfail(err, r->path, "write the attribute", name);
+    return 0;
+}
+
 void record_sink(Recorder *r, Sink *sink)
 {
     sink->begin = sink_begin;

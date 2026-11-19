@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Added: patching a virtual cell** (stage 1, a scripted timeline): a `[cell]` with `pipette_resistance` has a patching pipette
+  that starts in the bath, touches the cell (`patch_contact`), seals (`patch_suction`), passes the cell's action currents in cell-attached, and
+  breaks in (`patch_break_in`, one or more attempts); the seal, its speed, failures, the access resistance and its drift are drawn from
+  `patch_seed` (a seed is a cell); the pipette offset is nulled in the bath, so the junction-potential error appears in the cell.
+  Built on a NEURON `LinearMechanism`. Tutorial L, a figure, `rig_patch.ini`, `seal_test.sg`, `cell_attached.sg`; docs/14, SPEC 4g.
+- **Added: the membrane test** (`membrane_test = yes` in an `[in]`, voltage clamp): after every trial the seal-test resistance and
+  holding current, and in whole-cell Ra, Rm and Cm from the capacitive transient, printed, logged and kept as attributes of the
+  input's dataset (`src/mtest.c`, from the recorded data alone, so it will work on the rig too).
+- **Found:** StimGen reads a channel's `rest=` written with a unit in volts (docs/07); the kit writes it without a unit.
+
 Fixes from the audit of 2026-11-18, the pipette and amplifier model of the NEURON backend. Results without electrode keys are unchanged.
 
 - **Fixed: a resistive electrode read one step late.** With `electrode_resistance` and no `electrode_capacitance` the recording used the

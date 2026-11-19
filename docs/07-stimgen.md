@@ -138,13 +138,14 @@ channel list, and that the file has exactly the size the header promises.
 - A digital channel needs a digital output, an analog channel an analog one.
 - Units are compared **by dimension**. A stimulus in `nA` on a `pA` output is rescaled; `pA` against `mV` is an error that says which mode to use; a unit that is neither current nor voltage (a conductance such as `nS`) is an error.
 
-### A channel's rest value: write it without a unit
+### A channel's rest value
 
-A channel's `rest=` is the value it holds before and after the stimulus (and, in LCG2, between trials). Write it as a plain
-number, in the unit of the channel: `channel P1 unit=mV rest=-70 { ... }`. StimGen at the pinned commit reads `rest=-70mV`, with
-a unit, in volts (−0.07) while the samples stay in mV, so the output would rest at −0.07 mV. This was found on 2026-11-19 and is
-to be reported upstream; until it is fixed, the kit's stimuli write `rest` without a unit, and so must protocols that substitute
-a variable into it (`sweep hold = [0, -70]`, `rest=$hold`).
+A channel's `rest=` is the value it holds before and after the stimulus (and, in LCG2, between trials). Write it with a unit or
+as a plain number in the unit of the channel: on `channel P1 unit=mV`, `rest=-70mV`, `rest=-0.07V` and `rest=-70` are the same
+−70 mV, in either order of `unit=` and `rest=`, and so is a swept value (`sweep hold = [0mV, -70mV]`, `rest=$hold`). A unit of
+another kind (`rest=-70pA` on an mV channel) is refused, naming the channel. Before StimGen `a11eb73` a `rest` with a unit was
+read in volts (−0.07 mV here) without a word; it was found while building LCG2's patching on 2026-11-19 and fixed there, and the
+pin updated.
 
 ### The clipping check (`stim_check`)
 
@@ -201,7 +202,7 @@ every trial, so a run can be repeated.
 LCG2 was built and tested against **one specific version** of StimGen. It never
 copies StimGen. Instead [`STIMGEN_PIN`](../STIMGEN_PIN) records:
 
-- the git commit (now `379434b`, "Reject malformed exponents in decimal literals"),
+- the git commit (now `a11eb73`, "Convert rest= to the channel unit and check its dimension"),
 - the StimGen version string,
 - a **SHA-256 fingerprint** of the library sources (`util.c help.c render.c rng.c
   parse.c prims.c eval.c protocol.c sgb.c sg_api.c sg.h`, concatenated in that order).
@@ -234,11 +235,11 @@ then re-run `make test` in LCG2, and write the new hash and commit into
   in StimGen2 `379434b` and the pin updated. LCG2 still keeps its own, stricter parser
   for `-r` and `-t`; the two agree on every spelling tried, apart from a few
   documented differences (a zero duration; extra decimals).
-- **A small leak in the library.** The library interface allocates about 11 KB per
-  rendered trial that it never frees (parse trees; found with the macOS `leaks` tool,
-  all from StimGen's own allocators). It is harmless for runs of thousands of trials
-  (a megabyte per hundred), and LCG2 itself frees everything it allocates. It is
-  worth fixing in StimGen if the library is ever used in a long-lived program.
+- **A fixed leak.** The library interface used to keep about 11 KB per rendered trial
+  (parse trees; found with the macOS `leaks` tool). It was fixed in StimGen2 `9366757`
+  (in the pin since `a11eb73`): a 200-trial LCG2 run now ends with 0 leaked bytes, so
+  long live sessions no longer grow.
+- **A fixed bug: `rest=` with a unit**, see [above](#a-channels-rest-value).
 
 ## The language in one page
 

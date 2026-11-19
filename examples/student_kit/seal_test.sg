@@ -4,9 +4,8 @@ sg 2 protocol
 # (in the cell). Every trial is one pulse; with membrane_test = yes in [in P1] the program prints the
 # resistance after each one, and once in the cell, Ra, Rm and Cm.
 # 100 kHz, because the transient of a small cell lasts a tenth of a millisecond.
-# rest=$hold holds the pipette there between the pulses too. A rest written with a unit (rest=-70mV) is read by
-# StimGen 379434b in volts, not in the unit of the channel: write it as a plain number, as here.
-sweep    hold = [0, -70]          # mV (written without a unit: see rest= below)
+# rest=$hold holds the pipette there between the pulses too.
+sweep    hold = [0mV, -70mV]
 repeat   100
 order    grouped
 period   100ms
@@ -16,7 +15,7 @@ stimulus {
     channel P1 unit=mV rest=$hold {
         5ms  dc($hold)
         @pulse
-        10ms dc($(hold + 5))
+        10ms dc($(hold + 5mV))
         5ms  dc($hold)
     }
 }

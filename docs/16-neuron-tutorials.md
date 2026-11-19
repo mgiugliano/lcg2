@@ -141,7 +141,7 @@ Where is it now (it fires first at 100 pA)? Change `gnabar` (the sodium conducta
 **Goal:** see the currents behind the spikes.
 
 `-m vc` switches the same rig to voltage clamp: the command is now in **mV** (a `SEClamp`) and the recording in
-**pA**. `vc_steps.sg` holds at −70 mV (between the trials too: `rest=-70` in the stimulus) and steps to −60 … +40 mV for 30 ms:
+**pA**. `vc_steps.sg` holds at −70 mV (between the trials too: `rest=-70mV` in the stimulus) and steps to −60 … +40 mV for 30 ms:
 
 ```console
 $ ./lcg2 -m vc -c examples/student_kit/rig.ini examples/student_kit/vc_steps.sg

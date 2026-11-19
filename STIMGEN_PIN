@@ -3,14 +3,14 @@
 # the directory STIMGEN_SRC (default ../StimGen/src) and checks them against
 # the fingerprint below, so a different StimGen is noticed, not silently used.
 
-commit      = 379434b2e07208c5ffa9812d17dd821f64c8cdbf
+commit      = a11eb7367f8f39f29169998baf42d3f545003e7e
 sg_version  = 0.2
-date_pinned = 2026-11-18
+date_pinned = 2026-11-19
 
 # SHA-256 of the concatenation, in this order, of:
 #   util.c help.c render.c rng.c parse.c prims.c eval.c protocol.c sgb.c sg_api.c sg.h
 # (command: cd $STIMGEN_SRC && cat <those files> | shasum -a 256)
-sources_sha256 = 4fc8f2a540a35742bb873598adfac99123b1ff4c58b405a09512276833339c60
+sources_sha256 = 2d846589b7c6471f0990490871f885a31c98455a0e40b7715b40d6e3163eaa26
 
 # History:
 #   2026-11-18  13d2abf  first pin
@@ -19,3 +19,8 @@ sources_sha256 = 4fc8f2a540a35742bb873598adfac99123b1ff4c58b405a09512276833339c6
 #               GitHub: the library sources of that commit in
 #               github.com/mgiugliano/StimGen2 are byte-identical to the ones
 #               fingerprinted above.
+#   2026-11-19  a11eb73  "Convert rest= to the channel unit and check its dimension"
+#               (rest= with a unit was read in SI units, found while building
+#               LCG2), with 9366757 "Free all memory of a library call or
+#               protocol trial" (the leak of about 11 KB per rendered trial).
+#               The library sources are byte-identical to that commit on GitHub.

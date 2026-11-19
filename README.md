@@ -26,7 +26,7 @@ This section installs **exactly what LCG2 was developed and tested with**. The v
 | Operating system | macOS 27 on Apple silicon (arm64) | Ubuntu 22.04.5, x86-64 | |
 | C compiler, `make` | Apple clang 21.0.0, GNU Make 3.81 | gcc 11.4.0, GNU Make 4.3 | building |
 | HDF5 (C library) | Homebrew `hdf5-mpi` 2.2.0 (the serial `hdf5` works too) | `libhdf5-dev` 1.10.7 | building |
-| StimGen 2 | commit `379434b2e07208c5ffa9812d17dd821f64c8cdbf` (pinned, checked at build time) | same | building |
+| StimGen 2 | the commit in [`STIMGEN_PIN`](STIMGEN_PIN), checked at build time: `379434b` for v0.3.0, `a11eb73` on main | same | building |
 | Python | 3.11.18 (Homebrew) | 3.10.12 | tests, analysis, NEURON |
 | `h5py` | 3.16.0 | 3.16.0 | reading data, the recording tests |
 | NEURON | 8.2.6 | 9.0.2 | `device = neuron` only |
@@ -66,7 +66,7 @@ build stops if they are not the pinned version (a fingerprint in [`STIMGEN_PIN`]
 ```console
 $ mkdir ~/dev && cd ~/dev
 $ git clone https://github.com/mgiugliano/StimGen2.git StimGen
-$ git -C StimGen checkout 379434b2e07208c5ffa9812d17dd821f64c8cdbf
+$ git -C StimGen checkout 379434b2e07208c5ffa9812d17dd821f64c8cdbf   # for v0.3.0; main needs a11eb7367f8f39f29169998baf42d3f545003e7e
 $ git clone https://github.com/mgiugliano/lcg2.git
 $ git -C lcg2 checkout v0.3.0                  # the released version; main is the development branch
 ```

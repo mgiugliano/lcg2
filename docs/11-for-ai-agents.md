@@ -24,7 +24,7 @@ is on hold. M3b (the NEURON backend) and M5 (the suite, `docs/15-testing.md`) ar
 | Built | M0 skeleton and pin; M1 config, profiles, CLI; M2 StimGen link; M3 engine, platform layer, loopback; M4 HDF5 recording, run folder, checksums; M3b NEURON backend (`backend_neuron.c`, `neuron/lcg2_neuron.py`); M5 suite (`tests/test_multipatch.py`) |
 | Next | M8 polish, or hardware once the host is decided (ask the owner first) |
 | On hold | S1 hardware spike, M6 DAQmx, M7 rig bring-up (host undecided) |
-| StimGen pin | StimGen2 `379434b` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
+| StimGen pin | StimGen2 `a11eb73` (`STIMGEN_PIN`); `make` stops if `../StimGen/src` differs |
 | Tests | `make test`: unit tests, M1 table, M2 suite, M3 suite, doc commands; all must pass |
 | Build | `make` must print no warnings |
 
@@ -164,7 +164,7 @@ $ make check-pin                    # compare StimGen with the pin
 ## Unfinished business a new assistant should know
 
 - StimGen's `parse_rate` bug (malformed exponents) was fixed in StimGen2 `379434b`, and the pin was updated.
-- The StimGen library leaks about 11 KB per rendered trial (all from its own allocators; found with
-  `leaks`). LCG2 frees all it allocates. Worth reporting upstream.
+- StimGen's leak (about 11 KB per rendered trial) and its `rest=` unit bug (read in volts) were fixed in StimGen2
+  `9366757` and `a11eb73`, and the pin was updated (2026-11-19).
 - The earlier Python prototype (`lcg2.py`, `config.example.toml`) is superseded.
 - The hardware decision (Windows or PCIe) controls S1, M6 and M7.

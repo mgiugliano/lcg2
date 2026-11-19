@@ -1,14 +1,14 @@
 sg 2 protocol
 # Voltage clamp (use -m vc): hold at -70 mV, step to a series of potentials.
 # Plot the peak inward and the steady outward current against the potential (an I-V curve).
-# rest=-70 holds the cell at -70 mV between the trials too, as a real holding potential.
+# rest=-70mV holds the cell at -70 mV between the trials too, as a real holding potential.
 sweep    vm = from -60mV to 40mV step 20mV
 repeat   1
 order    sequential
 period   1s
 
 stimulus {
-    channel P1 unit=mV rest=-70 {
+    channel P1 unit=mV rest=-70mV {
         50ms dc(-70)
         @step
         30ms dc($vm)

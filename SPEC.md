@@ -323,7 +323,7 @@ a key outside a section, a line over 999 characters: all errors, with
 5. The **format range** 1.8 to 1.10, and the **free-space refusal** above.
 6. `convert_rate` is `null` in the provenance, with a note.
 
-Report upstream: StimGen leaks about 11 KB per rendered trial.
+StimGen leaked about 11 KB per rendered trial: fixed upstream (StimGen2 `9366757`, pinned 2026-11-19).
 
 ### 4e. The NEURON backend as built (M3b)
 
@@ -470,7 +470,8 @@ also carries `patch_seed` and `patch_start`.
 (within 0.1 s); only the first patching pipette has keys.
 
 **Found while building it:** StimGen reads a channel's `rest=` with a unit (`rest=-70mV`) in volts while the samples stay in the
-channel's unit; written without a unit it is right (docs/07). To report upstream.
+channel's unit; written without a unit it is right (docs/07). Fixed upstream (StimGen2 `a11eb73`, pinned 2026-11-19; a unit of
+the wrong kind is now refused).
 
 ## 5. Hardware facts used (USB-6343 datasheet)
 

@@ -18,7 +18,9 @@
 - **Fixed: real time (`-R`) on the NEURON backend let the cells fall behind the clock** by the time spent simulating each pause
   between trials (about 20 ms per trial with a 5 us step, so 2 s after 100 trials); a trial now starts, in the cells' time, where the
   pause ended.
-- **Found:** StimGen reads a channel's `rest=` written with a unit in volts (docs/07); the kit writes it without a unit.
+- **StimGen pin moved to `a11eb73`:** a channel's `rest=` written with a unit (`rest=-70mV`) was read in volts; now it is converted
+  to the channel's unit, and a unit of the wrong kind is refused. It also brings `9366757`, the fix of the leak of about 11 KB per
+  rendered trial. Stimuli without a unit on `rest` give identical output; the kit now writes `rest` with units.
 
 Fixes from the audit of 2026-11-18, the pipette and amplifier model of the NEURON backend. Results without electrode keys are unchanged.
 
